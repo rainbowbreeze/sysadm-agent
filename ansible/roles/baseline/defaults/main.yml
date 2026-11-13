@@ -2,7 +2,7 @@
 # Module: baseline
 # Description: Mandatory base configuration for all machines (hostname, timezone, passwordless SSH key, package updates & cache cleanup, observability tools, sshd hardening on port 21979).
 # Supported OS Families: Debian, Alpine
-# Required Machine Env Vars (in machines/<MACHINE_NAME>/vars.yml): None (uses ssh_keys/<key_name>.pub via baseline_ssh_pub_key_file)
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None (uses ssh_keys/<key_name>.pub via baseline_ssh_pub_key_file)
 
 baseline_timezone: "UTC"
 baseline_upgrade_packages: true

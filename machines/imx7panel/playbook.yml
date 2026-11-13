@@ -1,0 +1,12 @@
+---
+- name: Configure machine imx7panel
+  hosts: imx7panel
+  become: true
+  vars_files:
+    - vars.yml
+    - secrets.yml
+  roles:
+    - role: baseline
+      tags: [baseline]
+    - role: rainbowhat
+      tags: [rainbowhat]

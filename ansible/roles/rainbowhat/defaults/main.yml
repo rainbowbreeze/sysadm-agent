@@ -2,7 +2,7 @@
 # Module: rainbowhat
 # Description: Configures I2C/SPI kernel modules and installs Pimoroni Rainbow HAT Python libraries in an isolated virtualenv.
 # Supported OS Families: Debian
-# Required Machine Env Vars (in machines/<MACHINE_NAME>/vars.yml): None
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
 
 rainbowhat_enable_i2c: true
 rainbowhat_enable_spi: true

@@ -15,6 +15,7 @@ cd "$REPO_ROOT"
 MACHINE_DIR="$REPO_ROOT/machines/$MACHINE_NAME"
 INVENTORY_FILE="$MACHINE_DIR/inventory.yml"
 PLAYBOOK_FILE="$MACHINE_DIR/playbook.yml"
+SECRETS_FILE="$MACHINE_DIR/secrets.yml"
 LOGS_DIR="$MACHINE_DIR/logs"
 
 if [[ ! -d "$MACHINE_DIR" ]]; then
@@ -27,29 +28,37 @@ if [[ ! -f "$INVENTORY_FILE" || ! -f "$PLAYBOOK_FILE" ]]; then
   exit 1
 fi
 
-# Load local .env if present
-if [[ -f "$REPO_ROOT/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$REPO_ROOT/.env"
-  set +a
-fi
-
-# Verify required environment variables and ssh_keys/ before running Ansible
+# Verify required parameters in machines/<MACHINE_NAME>/secrets.yml and ssh_keys/
 python3 "$REPO_ROOT/scripts/check-env.py" "$MACHINE_NAME"
 
 # Auto-detect initial bootstrap port (22 -> 21979) unless running --syntax-check
-if [[ " $* " != *" --syntax-check "* ]]; then
-  IP_VAR="${MACHINE_NAME}_IP"
-  PORT_VAR="${MACHINE_NAME}_SSH_PORT"
-  TARGET_IP="${!IP_VAR:-}"
-  TARGET_PORT="${!PORT_VAR:-21979}"
+BOOTSTRAP_ARGS=()
+if [[ " $* " != *" --syntax-check "* && -f "$SECRETS_FILE" ]]; then
+  read -r TARGET_IP TARGET_PORT < <(
+    python3 - "$SECRETS_FILE" <<'PY'
+import sys
+from pathlib import Path
+
+secrets = {}
+for raw_line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    line = raw_line.strip()
+    if not line or line.startswith("#") or line == "---" or ":" not in line:
+        continue
+    k, v = line.split(":", 1)
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+        v = v[1:-1]
+    secrets[k.strip()] = v
+
+print(secrets.get("machine_ip", ""), secrets.get("machine_ssh_port", "21979") or "21979")
+PY
+  )
 
   if [[ -n "$TARGET_IP" && "$TARGET_PORT" != "22" ]]; then
     if ! python3 -c "import socket, sys; s = socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=2); s.close()" "$TARGET_IP" "$TARGET_PORT" 2>/dev/null; then
       if python3 -c "import socket, sys; s = socket.create_connection((sys.argv[1], 22), timeout=2); s.close()" "$TARGET_IP" 2>/dev/null; then
         echo "=== [BOOTSTRAP] Port $TARGET_PORT is not open on $TARGET_IP yet, but port 22 is reachable. Using port 22 for initial bootstrap ==="
-        export "${PORT_VAR}=22"
+        BOOTSTRAP_ARGS=(-e "machine_ssh_port=22")
       fi
     fi
   fi
@@ -77,7 +86,7 @@ echo "=== Running Ansible for machine '$MACHINE_NAME' ==="
 echo "=== Log file: $LOG_FILE ==="
 
 set +e
-"$ANSIBLE_PLAYBOOK" -i "$INVENTORY_FILE" "$PLAYBOOK_FILE" --diff "$@"
+"$ANSIBLE_PLAYBOOK" -i "$INVENTORY_FILE" "$PLAYBOOK_FILE" --diff "${BOOTSTRAP_ARGS[@]+"${BOOTSTRAP_ARGS[@]}"}" "$@"
 EXIT_CODE=$?
 set -e
 

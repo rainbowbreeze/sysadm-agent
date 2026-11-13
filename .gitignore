@@ -236,7 +236,8 @@ ssh_keys/*
 *.retry
 .ansible/
 
-# Local orchestration secrets
+# Per-machine private parameters and secrets (never commit to public repo)
+machines/*/secrets.yml
 .env
 .env.*
 

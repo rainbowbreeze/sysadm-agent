@@ -11,7 +11,7 @@ description: >-
 
 Follow this workflow when creating or updating a composable configuration module in `ansible/roles/<module_name>/`.
 
-> **Strict Isolation Rule**: When creating or updating a module, scope all changes strictly to `ansible/roles/<module_name>/`. **Never modify** existing machine folders (`machines/<MACHINE_NAME>/`) or `.env`.
+> **Strict Isolation Rule**: When creating or updating a module, scope all changes strictly to `ansible/roles/<module_name>/`. **Never modify** existing machine folders (`machines/<MACHINE_NAME>/`).
 
 ## Step 1: Design & Naming Rules
 
@@ -28,10 +28,10 @@ Follow this workflow when creating or updating a composable configuration module
    - Only create `vars/Debian.yml` and/or `vars/Alpine.yml` when package or service names differ between supported OS families.
 4. **Single Source of Truth Documentation in `defaults/main.yml`**:
    - Do **not** create separate `README.md` files inside roles.
-   - Document the module's purpose, supported `ansible_os_family` values, configurable `<module_name>_*` variables, and required `<MACHINE_NAME>_<MODULE>_<VALUE>` environment variables in a structured comment header at the top of `ansible/roles/<module_name>/defaults/main.yml` so `ai-sysadm-configure-machine` can discover everything from `defaults/main.yml`.
-5. **Environment Variable Convention (`<MACHINE_NAME>_<MODULE>_<VALUE>`)**:
+   - Document the module's purpose, supported `ansible_os_family` values, configurable `<module_name>_*` variables, and required secret parameters (defined in a machine's `machines/<MACHINE_NAME>/secrets.yml`) in a structured comment header at the top of `ansible/roles/<module_name>/defaults/main.yml` so `ai-sysadm-configure-machine` can discover everything from `defaults/main.yml`.
+5. **Private Parameters Convention (`machines/<MACHINE_NAME>/secrets.yml`)**:
    - Never hardcode credentials, IPs, or secrets inside a role.
-   - Expose role variables in `defaults/main.yml` prefixed with `<module_name>_`, and document in the header of `defaults/main.yml` which variables must be mapped from `<MACHINE_NAME>_<MODULE>_<VALUE>` in a machine's `vars.yml`.
+   - Expose role variables in `defaults/main.yml` prefixed with `<module_name>_`, and document in the header of `defaults/main.yml` which `<module_name>_*` variables must be provided in `machines/<MACHINE_NAME>/secrets.yml` (and referenced in `machines/<MACHINE_NAME>/vars.yml` if needed).
 
 ## Step 2: Scaffold Immediately & Present Values for Confirmation/Editing
 
@@ -57,8 +57,8 @@ Follow this workflow when creating or updating a composable configuration module
    # Module: <module_name>
    # Description: <Brief description of what this module installs and configures>
    # Supported OS Families: Debian, Alpine
-   # Required Machine Env Vars (in machines/<MACHINE_NAME>/vars.yml):
-   #   - <MACHINE_NAME>_<MODULE>_<VALUE> -> maps to <module_name>_<var> (or "None")
+   # Required Secrets (in machines/<MACHINE_NAME>/secrets.yml):
+   #   - <module_name>_<secret_name> (or "None")
 
    <module_name>_example_setting: true
    ```
@@ -78,7 +78,7 @@ Follow this workflow when creating or updating a composable configuration module
    - **Module Name & Path**: `ansible/roles/<module_name>/`
    - **Supported OS Families**: e.g., `Debian` (Debian/Ubuntu), `Alpine`
    - **Default Variables (`defaults/main.yml`)**: All `<module_name>_*` keys and their default values
-   - **Required `<MACHINE_NAME>_<MODULE>_<VALUE>` Env Vars**: Any secrets or user-specific variables a machine's `vars.yml` will need to supply
+   - **Required Secrets (`machines/<MACHINE_NAME>/secrets.yml`)**: Any `<module_name>_*` secrets a machine's `secrets.yml` will need to supply
    - **Tasks & Handlers**: Summary of packages, configuration files, and services managed
 
 ## Step 3: Verification & Documentation Sync

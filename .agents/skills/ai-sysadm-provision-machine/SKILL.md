@@ -3,27 +3,27 @@ name: ai-sysadm-provision-machine
 description: >-
   Use this skill when the user asks AI-sysadm to install, configure, provision,
   or update a target machine using its configuration folder in `machines/<MACHINE_NAME>/`.
-  Validates env vars and SSH keys, runs Ansible idempotently, and documents
-  installation logs inside `machines/<MACHINE_NAME>/logs/`.
+  Validates `machines/<MACHINE_NAME>/secrets.yml` and SSH keys in `ssh_keys/`, runs
+  Ansible idempotently, and documents installation logs inside `machines/<MACHINE_NAME>/logs/`.
 ---
 
 # AI-Sysadm: Provision Machine (`ai-sysadm-provision-machine`)
 
 Follow these steps to execute a machine's configuration idempotently and document the installation logs in its folder.
 
-> **Strict Isolation Rule**: During provisioning, **never modify** any committed files (`ansible/roles/`, `machines/<MACHINE_NAME>/*.yml`, or `scripts/`) or `.env`. Only write to `machines/<MACHINE_NAME>/logs/`.
+> **Strict Isolation Rule**: During provisioning, **never modify** any committed files (`ansible/roles/`, `machines/<MACHINE_NAME>/*.yml`, or `scripts/`) or `machines/<MACHINE_NAME>/secrets.yml`. Only write to `machines/<MACHINE_NAME>/logs/`.
 
 ## Step 1: Pre-Flight Validation (Fail & Stop on Missing Prerequisites)
 
 1. **Verify Machine Folder & Ansible Binary**:
-   - Check that `machines/<MACHINE_NAME>/inventory.yml`, `vars.yml`, and `playbook.yml` exist.
+   - Check that `machines/<MACHINE_NAME>/inventory.yml`, `vars.yml`, `playbook.yml`, and `secrets.yml` exist.
    - Check that `.venv/bin/ansible-playbook` (or system `ansible-playbook`) is installed.
    - If either the machine folder or Ansible is missing, **stop immediately** and ask the user to run the setup manually (`python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` or `ai-sysadm-configure-machine`). Do not auto-install `.venv` or scaffold files silently.
-2. **Verify Required Environment Variables & SSH Keys**:
+2. **Verify Required `secrets.yml` Parameters & SSH Keys**:
    ```bash
    python3 scripts/check-env.py <MACHINE_NAME>
    ```
-   - If `check-env.py` exits with a non-zero code, **stop immediately** and ask the user to provide the missing `<MACHINE_NAME>_*` variables in `.env` or the missing SSH key pair in `ssh_keys/`.
+   - If `check-env.py` exits with a non-zero code, **stop immediately** and ask the user to provide the missing parameters in `machines/<MACHINE_NAME>/secrets.yml` or the missing SSH key pair in `ssh_keys/`.
 
 ## Step 2: Execute Ansible Configuration
 
@@ -35,7 +35,7 @@ Follow these steps to execute a machine's configuration idempotently and documen
      ./scripts/run-machine.sh <MACHINE_NAME>
      ```
 2. **Selective Module Execution (Optional `--tags`)**:
-   - If the user asked to run or update only specific modules (e.g., `camera`), pass `--tags`:
+   - If the user asked to run or update only specific modules (e.g., `rainbowhat`), pass `--tags`:
      ```bash
      ./scripts/run-machine.sh <MACHINE_NAME> --tags <module_name>
      ```

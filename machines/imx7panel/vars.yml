@@ -1,0 +1,4 @@
+---
+machine_hostname: "imx7panel"
+baseline_timezone: "Europe/Rome"
+baseline_ssh_pub_key_file: "{{ playbook_dir }}/../../ssh_keys/sysadm-agent.pub"
