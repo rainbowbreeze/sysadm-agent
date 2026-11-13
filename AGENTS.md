@@ -1,6 +1,6 @@
 # AI-Sysadm (`sysadm-agent`) — Agent Onboarding & Architecture Guide
 
-`sysadm-agent` is an **AI-Agent-Native system administration platform** that uses **Ansible** and **Agent Skills** (`_agents/skills/ai-sysadm-*`) to install, configure, and maintain Linux machines across a network.
+`sysadm-agent` is an **AI-Agent-Native system administration platform** that uses **Ansible** and **Agent Skills** (`.agents/skills/ai-sysadm-*`) to install, configure, and maintain Linux machines across a network.
 
 This file is the **entry point for any AI agent** working in this repository. Reading this document gives you full context on how the project is structured, how its components interact, which skill to load for each task, and the operational rules you must follow.
 
@@ -48,7 +48,7 @@ sysadm-agent/
 ├── scripts/
 │   ├── check-env.py                 # Validates required <MACHINE_NAME>_* env vars and ssh_keys/ files
 │   └── run-machine.sh               # Loads .env, runs check-env.py, handles port 22->21979 bootstrap, runs Ansible
-└── _agents/skills/                  # Task-specific agent runbooks (always read before executing a task)
+└── .agents/skills/                  # Task-specific agent runbooks (always read before executing a task)
     ├── ai-sysadm-configure-machine/SKILL.md
     ├── ai-sysadm-provision-machine/SKILL.md
     └── ai-sysadm-create-module/SKILL.md
@@ -61,15 +61,15 @@ sysadm-agent/
 Whenever the user asks you to perform one of the core workflows below, **read and follow the corresponding skill file first**:
 
 1. **Define or Update a Machine (`machines/<MACHINE_NAME>/`)**
-   - **Read**: [_agents/skills/ai-sysadm-configure-machine/SKILL.md](file:///Users/alfredomorresi/Documents/develop/sysadm-agent/_agents/skills/ai-sysadm-configure-machine/SKILL.md)
+   - **Read**: [.agents/skills/ai-sysadm-configure-machine/SKILL.md](file:///Users/alfredomorresi/Documents/develop/sysadm-agent/.agents/skills/ai-sysadm-configure-machine/SKILL.md)
    - **What it does**: Interviews the user step-by-step (machine ID, derived hostname & SSH key pair in `ssh_keys/`, optional SSH/sudo passwords, `baseline` settings, and dynamic module selection from `ansible/roles/*/defaults/main.yml`), generates `machines/<MACHINE_NAME>/*.yml` and `.env` entries, and loops on `python3 scripts/check-env.py <MACHINE_NAME>` until all keys and env vars are ready.
 
 2. **Install / Provision / Update a Target Machine**
-   - **Read**: [_agents/skills/ai-sysadm-provision-machine/SKILL.md](file:///Users/alfredomorresi/Documents/develop/sysadm-agent/_agents/skills/ai-sysadm-provision-machine/SKILL.md)
+   - **Read**: [.agents/skills/ai-sysadm-provision-machine/SKILL.md](file:///Users/alfredomorresi/Documents/develop/sysadm-agent/.agents/skills/ai-sysadm-provision-machine/SKILL.md)
    - **What it does**: Validates pre-flight requirements (`.venv`, `machines/<MACHINE_NAME>/`, `scripts/check-env.py`), runs `./scripts/run-machine.sh <MACHINE_NAME>` (or `--tags <module>` / `--check`), and logs the run summary in `machines/<MACHINE_NAME>/logs/history.md`.
 
 3. **Create or Modify a Composable Module (`ansible/roles/<module_name>/`)**
-   - **Read**: [_agents/skills/ai-sysadm-create-module/SKILL.md](file:///Users/alfredomorresi/Documents/develop/sysadm-agent/_agents/skills/ai-sysadm-create-module/SKILL.md)
+   - **Read**: [.agents/skills/ai-sysadm-create-module/SKILL.md](file:///Users/alfredomorresi/Documents/develop/sysadm-agent/.agents/skills/ai-sysadm-create-module/SKILL.md)
    - **What it does**: Scaffolds a self-contained, idempotent role (`<category>_<variant>`) supporting `Debian` and/or `Alpine` with a structured header in `defaults/main.yml`, and presents all configured values to the user for confirmation or editing.
 
 ---
