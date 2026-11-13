@@ -222,6 +222,7 @@ __marimo__/
 
 # Rainbowbreeze customizations
 resume-agent*
+.DS_Store
 
 # Machine installation and execution logs (never commit to public repo)
 machines/*/logs/*
