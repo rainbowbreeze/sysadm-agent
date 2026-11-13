@@ -223,3 +223,21 @@ __marimo__/
 # Rainbowbreeze customizations
 resume-agent*
 
+# Machine installation and execution logs (never commit to public repo)
+machines/*/logs/*
+!machines/*/logs/.gitkeep
+
+# SSH keys for target machines (never commit to public repo)
+ssh_keys/*
+!ssh_keys/.gitkeep
+
+# Ansible artifacts
+*.retry
+.ansible/
+
+# Local orchestration secrets
+.env
+.env.*
+!.env.example
+
+
