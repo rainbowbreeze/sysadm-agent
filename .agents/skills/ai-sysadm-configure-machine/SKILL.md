@@ -16,7 +16,7 @@ Follow this interactive workflow to define or update a machine configuration und
 ## Step 1: Machine Identity & Derived Defaults
 
 1. **Machine Identifier (`<MACHINE_NAME>`)**:
-   - Ask for the machine identifier (e.g., `imx7panel`, `RPICamera06`, `LivingRoomScreen01`).
+   - Ask for the machine identifier (prefer lowercase alphanumeric, e.g., `imx7panel`, `rpicamera06`, `livingroomscreen01`).
    - If `machines/<MACHINE_NAME>/` already exists, read its current `inventory.yml`, `vars.yml`, and `playbook.yml`, summarize its current configuration, and ask what the user wants to update.
 2. **Confirm Derived Defaults**:
    - Derive the following defaults from `<MACHINE_NAME>` (where `<machine_name_lower>` is the lowercase form, e.g., `imx7panel`):

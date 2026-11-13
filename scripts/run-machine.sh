@@ -31,10 +31,10 @@ fi
 # Verify required parameters in machines/<MACHINE_NAME>/secrets.yml and ssh_keys/
 python3 "$REPO_ROOT/scripts/check-env.py" "$MACHINE_NAME"
 
-# Auto-detect initial bootstrap port (22 -> 21979) unless running --syntax-check
+# Auto-detect initial bootstrap port (22 -> 21979) and paramiko fallback unless running --syntax-check
 BOOTSTRAP_ARGS=()
 if [[ " $* " != *" --syntax-check "* && -f "$SECRETS_FILE" ]]; then
-  read -r TARGET_IP TARGET_PORT < <(
+  read -r TARGET_IP TARGET_PORT HAS_SSH_PASS < <(
     python3 - "$SECRETS_FILE" <<'PY'
 import sys
 from pathlib import Path
@@ -50,15 +50,21 @@ for raw_line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
         v = v[1:-1]
     secrets[k.strip()] = v
 
-print(secrets.get("machine_ip", ""), secrets.get("machine_ssh_port", "21979") or "21979")
+has_pass = "yes" if secrets.get("machine_ssh_pass", "") else "no"
+print(secrets.get("machine_ip", ""), secrets.get("machine_ssh_port", "21979") or "21979", has_pass)
 PY
   )
+
+  if [[ "$HAS_SSH_PASS" == "yes" ]] && ! command -v sshpass >/dev/null 2>&1; then
+    echo "=== [SSH] sshpass not installed on host; using Ansible 'paramiko' connection plugin ==="
+    BOOTSTRAP_ARGS+=(-c paramiko)
+  fi
 
   if [[ -n "$TARGET_IP" && "$TARGET_PORT" != "22" ]]; then
     if ! python3 -c "import socket, sys; s = socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=2); s.close()" "$TARGET_IP" "$TARGET_PORT" 2>/dev/null; then
       if python3 -c "import socket, sys; s = socket.create_connection((sys.argv[1], 22), timeout=2); s.close()" "$TARGET_IP" 2>/dev/null; then
         echo "=== [BOOTSTRAP] Port $TARGET_PORT is not open on $TARGET_IP yet, but port 22 is reachable. Using port 22 for initial bootstrap ==="
-        BOOTSTRAP_ARGS=(-e "machine_ssh_port=22")
+        BOOTSTRAP_ARGS+=(-e "machine_ssh_port=22")
       fi
     fi
   fi

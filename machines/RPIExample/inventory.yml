@@ -1,7 +1,9 @@
 all:
   hosts:
-    RPIExample:
+    rpiexample:
       ansible_host: "{{ machine_ip }}"
       ansible_port: "{{ machine_ssh_port | default(21979, true) | int }}"
       ansible_user: "{{ machine_ssh_user }}"
+      ansible_ssh_pass: "{{ machine_ssh_pass }}"
+      ansible_become_pass: "{{ machine_become_pass }}"
       ansible_ssh_private_key_file: "{{ playbook_dir }}/../../ssh_keys/rpiexample_ed25519"
