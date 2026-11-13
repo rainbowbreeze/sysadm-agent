@@ -1,0 +1,15 @@
+---
+- name: Restart sshd
+  ansible.builtin.service:
+    name: "{{ baseline_ssh_service }}"
+    state: restarted
+  notify:
+    - Update active ansible_port to baseline_sshd_port
+    - Reset SSH connection after sshd restart
+
+- name: Update active ansible_port to baseline_sshd_port
+  ansible.builtin.set_fact:
+    ansible_port: "{{ baseline_sshd_port }}"
+
+- name: Reset SSH connection after sshd restart
+  ansible.builtin.meta: reset_connection

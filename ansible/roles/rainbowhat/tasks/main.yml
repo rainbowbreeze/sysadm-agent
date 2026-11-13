@@ -1,0 +1,41 @@
+---
+- name: Verify target OS is supported by rainbowhat
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family in ["Debian"]
+    fail_msg: "Module rainbowhat only supports Debian/Ubuntu (found {{ ansible_os_family }})."
+
+- name: Install I2C and Python dependencies for Rainbow HAT
+  ansible.builtin.package:
+    name: "{{ rainbowhat_packages }}"
+    state: present
+
+- name: Persist i2c-dev and spidev kernel modules
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/rainbowhat.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {% if rainbowhat_enable_i2c %}
+      i2c-dev
+      {% endif %}
+      {% if rainbowhat_enable_spi %}
+      spidev
+      {% endif %}
+
+- name: Ensure /opt/rainbowhat directory exists
+  ansible.builtin.file:
+    path: "{{ rainbowhat_python_venv | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install rainbowhat Python library in isolated virtualenv
+  ansible.builtin.pip:
+    name:
+      - rainbowhat
+      - blinkt
+    virtualenv: "{{ rainbowhat_python_venv }}"
+    state: present

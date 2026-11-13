@@ -1,0 +1,11 @@
+---
+- name: Configure machine RPIExample
+  hosts: RPIExample
+  become: true
+  vars_files:
+    - vars.yml
+  roles:
+    - role: baseline
+      tags: [baseline]
+    - role: rainbowhat
+      tags: [rainbowhat]

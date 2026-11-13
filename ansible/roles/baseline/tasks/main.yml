@@ -1,0 +1,111 @@
+---
+- name: Load OS-family specific baseline variables
+  ansible.builtin.include_vars: "{{ item }}"
+  with_first_found:
+    - "{{ ansible_os_family }}.yml"
+    - "Debian.yml"
+
+- name: Set system hostname if machine_hostname is defined
+  ansible.builtin.hostname:
+    name: "{{ machine_hostname }}"
+  when: machine_hostname is defined and machine_hostname | length > 0
+
+- name: Configure system timezone ({{ baseline_timezone }})
+  ansible.builtin.file:
+    src: "/usr/share/zoneinfo/{{ baseline_timezone }}"
+    dest: /etc/localtime
+    state: link
+    force: true
+  when: baseline_timezone is defined and baseline_timezone | length > 0
+
+- name: Verify SSH public key file is configured before hardening sshd
+  ansible.builtin.assert:
+    that:
+      - baseline_ssh_pub_key_file is defined
+      - baseline_ssh_pub_key_file | length > 0
+      - lookup('file', baseline_ssh_pub_key_file) | length > 0
+    fail_msg: "baseline_ssh_pub_key_file must point to a valid .pub key in ssh_keys/ before hardening sshd."
+
+- name: Ensure ~/.ssh directory exists for target user
+  ansible.builtin.file:
+    path: "~{{ ansible_user }}/.ssh"
+    state: directory
+    owner: "{{ ansible_user }}"
+    mode: "0700"
+
+- name: Authorize machine SSH public key for passwordless login
+  ansible.builtin.lineinfile:
+    path: "~{{ ansible_user }}/.ssh/authorized_keys"
+    line: "{{ lookup('file', baseline_ssh_pub_key_file) }}"
+    create: true
+    owner: "{{ ansible_user }}"
+    mode: "0600"
+
+- name: Update and upgrade apt packages (Debian/Ubuntu)
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: "{{ 'dist' if baseline_upgrade_packages else 'no' }}"
+    autoclean: "{{ baseline_clean_package_cache }}"
+    autoremove: "{{ baseline_clean_package_cache }}"
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: Clean apt package cache (Debian/Ubuntu)
+  ansible.builtin.apt:
+    clean: true
+  when:
+    - ansible_os_family == "Debian"
+    - baseline_clean_package_cache | bool
+
+- name: Update and upgrade apk packages (Alpine)
+  community.general.apk:
+    update_cache: true
+    upgrade: "{{ baseline_upgrade_packages | bool }}"
+  when: ansible_os_family == "Alpine"
+
+- name: Install baseline machine observability packages
+  ansible.builtin.package:
+    name: "{{ baseline_observability_packages }}"
+    state: present
+  when: baseline_install_observability | bool
+
+- name: Install and enable Prometheus node exporter when requested
+  block:
+    - name: Install node exporter package
+      ansible.builtin.package:
+        name: "{{ baseline_node_exporter_package }}"
+        state: present
+
+    - name: Ensure node exporter service is enabled and running
+      ansible.builtin.service:
+        name: "{{ baseline_node_exporter_service }}"
+        state: started
+        enabled: true
+  when: baseline_enable_node_exporter | bool
+
+- name: Configure and harden SSH daemon (/etc/ssh/sshd_config)
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+    validate: "sshd -t -f %s"
+  loop:
+    - regexp: "^#?Port\\s+"
+      line: "Port {{ baseline_sshd_port }}"
+    - regexp: "^#?PermitRootLogin\\s+"
+      line: "PermitRootLogin {{ baseline_sshd_permit_root_login }}"
+    - regexp: "^#?PubkeyAuthentication\\s+"
+      line: "PubkeyAuthentication {{ 'yes' if baseline_sshd_pubkey_auth else 'no' }}"
+    - regexp: "^#?PasswordAuthentication\\s+"
+      line: "PasswordAuthentication {{ 'yes' if baseline_sshd_password_auth else 'no' }}"
+  notify: Restart sshd
+
+- name: Ensure SSH daemon is enabled and running
+  ansible.builtin.service:
+    name: "{{ baseline_ssh_service }}"
+    state: started
+    enabled: true
+
+- name: Flush SSH handlers so port/auth changes take effect before subsequent modules
+  ansible.builtin.meta: flush_handlers

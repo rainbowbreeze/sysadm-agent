@@ -1,0 +1,7 @@
+all:
+  hosts:
+    RPIExample:
+      ansible_host: "{{ lookup('env', 'RPIExample_IP', default=undef('Missing required env var RPIExample_IP')) }}"
+      ansible_port: "{{ lookup('env', 'RPIExample_SSH_PORT') | default('21979', true) | int }}"
+      ansible_user: "{{ lookup('env', 'RPIExample_SSH_USER', default=undef('Missing required env var RPIExample_SSH_USER')) }}"
+      ansible_ssh_private_key_file: "{{ playbook_dir }}/../../ssh_keys/rpiexample_ed25519"

@@ -1,0 +1,4 @@
+---
+machine_hostname: "rpiexample"
+baseline_timezone: "Europe/Rome"
+baseline_ssh_pub_key_file: "{{ playbook_dir }}/../../ssh_keys/rpiexample_ed25519.pub"

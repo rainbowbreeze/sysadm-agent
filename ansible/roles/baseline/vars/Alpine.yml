@@ -1,0 +1,12 @@
+---
+baseline_ssh_service: sshd
+baseline_observability_packages:
+  - htop
+  - iotop
+  - curl
+  - jq
+  - lsof
+  - sysstat
+  - iproute2
+baseline_node_exporter_package: node-exporter
+baseline_node_exporter_service: node-exporter

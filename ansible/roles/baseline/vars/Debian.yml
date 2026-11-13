@@ -1,0 +1,12 @@
+---
+baseline_ssh_service: ssh
+baseline_observability_packages:
+  - htop
+  - iotop
+  - curl
+  - jq
+  - lsof
+  - sysstat
+  - iproute2
+baseline_node_exporter_package: prometheus-node-exporter
+baseline_node_exporter_service: prometheus-node-exporter

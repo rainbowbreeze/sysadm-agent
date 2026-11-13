@@ -1,0 +1,22 @@
+---
+# Module: baseline
+# Description: Mandatory base configuration for all machines (hostname, timezone, passwordless SSH key, package updates & cache cleanup, observability tools, sshd hardening on port 21979).
+# Supported OS Families: Debian, Alpine
+# Required Machine Env Vars (in machines/<MACHINE_NAME>/vars.yml): None (uses ssh_keys/<key_name>.pub via baseline_ssh_pub_key_file)
+
+baseline_timezone: "UTC"
+baseline_upgrade_packages: true
+baseline_clean_package_cache: true
+
+# SSH daemon hardening settings
+baseline_sshd_port: 21979
+baseline_sshd_permit_root_login: "no"
+baseline_sshd_password_auth: false
+baseline_sshd_pubkey_auth: true
+
+# Path to SSH public key (in ssh_keys/) to authorize for ansible_user
+baseline_ssh_pub_key_file: ""
+
+# Machine observability settings
+baseline_install_observability: true
+baseline_enable_node_exporter: false
