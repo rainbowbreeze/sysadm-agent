@@ -10,6 +10,7 @@
 - name: Update active ansible_port to baseline_sshd_port
   ansible.builtin.set_fact:
     ansible_port: "{{ baseline_sshd_port }}"
+  when: not ansible_check_mode
 
 - name: Reset SSH connection after sshd restart
   ansible.builtin.meta: reset_connection

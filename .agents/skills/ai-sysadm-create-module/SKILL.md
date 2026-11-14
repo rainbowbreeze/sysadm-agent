@@ -24,11 +24,11 @@ Follow this workflow when creating or updating a composable configuration module
 3. **Target OS Scope (`Debian` / `Alpine`)**:
    - Target machines run **Debian/Ubuntu (`Debian`)** and/or **Alpine (`Alpine`)**.
    - Determine which OS family(ies) the module supports (`["Debian", "Alpine"]`, `["Debian"]`, or `["Alpine"]`).
-   - Always start `tasks/main.yml` with an `ansible.builtin.assert` checking `ansible_os_family` against the module's supported OS list so execution fails fast on an unsupported distro.
+   - Always start `tasks/main.yml` with an `ansible.builtin.assert` checking `ansible_facts["os_family"]` against the module's supported OS list so execution fails fast on an unsupported distro.
    - Only create `vars/Debian.yml` and/or `vars/Alpine.yml` when package or service names differ between supported OS families.
 4. **Single Source of Truth Documentation in `defaults/main.yml`**:
    - Do **not** create separate `README.md` files inside roles.
-   - Document the module's purpose, supported `ansible_os_family` values, configurable `<module_name>_*` variables, and required secret parameters (defined in a machine's `machines/<MACHINE_NAME>/secrets.yml`) in a structured comment header at the top of `ansible/roles/<module_name>/defaults/main.yml` so `ai-sysadm-configure-machine` can discover everything from `defaults/main.yml`.
+   - Document the module's purpose, supported `ansible_facts["os_family"]` values, configurable `<module_name>_*` variables, and required secret parameters (defined in a machine's `machines/<MACHINE_NAME>/secrets.yml`) in a structured comment header at the top of `ansible/roles/<module_name>/defaults/main.yml` so `ai-sysadm-configure-machine` can discover everything from `defaults/main.yml`.
 5. **Private Parameters Convention (`machines/<MACHINE_NAME>/secrets.yml`)**:
    - Never hardcode credentials, IPs, or secrets inside a role.
    - Expose role variables in `defaults/main.yml` prefixed with `<module_name>_`, and document in the header of `defaults/main.yml` which `<module_name>_*` variables must be provided in `machines/<MACHINE_NAME>/secrets.yml` (and referenced in `machines/<MACHINE_NAME>/vars.yml` if needed).
@@ -69,8 +69,8 @@ Follow this workflow when creating or updating a composable configuration module
    - name: Verify target OS is supported by <module_name>
      ansible.builtin.assert:
        that:
-         - ansible_os_family in ["Debian", "Alpine"]
-       fail_msg: "Module <module_name> only supports Debian/Ubuntu and Alpine (found {{ ansible_os_family }})."
+         - ansible_facts["os_family"] in ["Debian", "Alpine"]
+       fail_msg: "Module <module_name> only supports Debian/Ubuntu and Alpine (found {{ ansible_facts['os_family'] }})."
    ```
 
 2. **Show All Values for User Confirmation or Editing**:

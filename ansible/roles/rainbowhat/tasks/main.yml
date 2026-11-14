@@ -2,8 +2,8 @@
 - name: Verify target OS is supported by rainbowhat
   ansible.builtin.assert:
     that:
-      - ansible_os_family in ["Debian"]
-    fail_msg: "Module rainbowhat only supports Debian/Ubuntu (found {{ ansible_os_family }})."
+      - ansible_facts["os_family"] in ["Debian"]
+    fail_msg: "Module rainbowhat only supports Debian/Ubuntu (found {{ ansible_facts['os_family'] }})."
 
 - name: Install I2C and Python dependencies for Rainbow HAT
   ansible.builtin.package:
@@ -38,4 +38,5 @@
       - rainbowhat
       - blinkt
     virtualenv: "{{ rainbowhat_python_venv }}"
+    virtualenv_command: python3 -m venv
     state: present

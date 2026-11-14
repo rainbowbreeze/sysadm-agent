@@ -2,7 +2,7 @@
 - name: Load OS-family specific baseline variables
   ansible.builtin.include_vars: "{{ item }}"
   with_first_found:
-    - "{{ ansible_os_family }}.yml"
+    - "{{ ansible_facts['os_family'] }}.yml"
     - "Debian.yml"
 
 - name: Set system hostname if machine_hostname is defined
@@ -41,27 +41,52 @@
     owner: "{{ ansible_user }}"
     mode: "0600"
 
+- name: Install configured APT GPG signing keys (Debian/Ubuntu)
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "/etc/apt/trusted.gpg.d/{{ item.name }}.asc"
+    owner: root
+    group: root
+    mode: "0644"
+    force: true
+  loop: "{{ baseline_apt_gpg_keys | default([]) }}"
+  register: baseline_apt_gpg_keys_result
+  when:
+    - ansible_facts["os_family"] == "Debian"
+    - baseline_apt_gpg_keys is defined
+    - baseline_apt_gpg_keys | length > 0
+
+- name: Ensure universe component is enabled for security and updates suites on Ubuntu
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list
+    regexp: '^(deb\s+\S+\s+\S+-(?:security|updates)\s+main)\s*$'
+    replace: '\1 universe'
+  register: baseline_ubuntu_sources_result
+  when:
+    - ansible_facts["os_family"] == "Debian"
+    - ansible_facts["distribution"] | default("") == "Ubuntu"
+
 - name: Update and upgrade apt packages (Debian/Ubuntu)
   ansible.builtin.apt:
     update_cache: true
     upgrade: "{{ 'dist' if baseline_upgrade_packages else 'no' }}"
     autoclean: "{{ baseline_clean_package_cache }}"
     autoremove: "{{ baseline_clean_package_cache }}"
-    cache_valid_time: 3600
-  when: ansible_os_family == "Debian"
+    cache_valid_time: "{{ 0 if ((baseline_apt_gpg_keys_result is defined and baseline_apt_gpg_keys_result.changed) or (baseline_ubuntu_sources_result is defined and baseline_ubuntu_sources_result.changed)) else 3600 }}"
+  when: ansible_facts["os_family"] == "Debian"
 
 - name: Clean apt package cache (Debian/Ubuntu)
   ansible.builtin.apt:
     clean: true
   when:
-    - ansible_os_family == "Debian"
+    - ansible_facts["os_family"] == "Debian"
     - baseline_clean_package_cache | bool
 
 - name: Update and upgrade apk packages (Alpine)
   community.general.apk:
     update_cache: true
     upgrade: "{{ baseline_upgrade_packages | bool }}"
-  when: ansible_os_family == "Alpine"
+  when: ansible_facts["os_family"] == "Alpine"
 
 - name: Install baseline machine observability packages
   ansible.builtin.package:

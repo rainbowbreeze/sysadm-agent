@@ -17,6 +17,10 @@ baseline_sshd_pubkey_auth: true
 # Path to SSH public key (in ssh_keys/) to authorize for ansible_user
 baseline_ssh_pub_key_file: ""
 
+# Optional APT GPG signing keys to install before apt update (Debian/Ubuntu)
+# Example: [{ name: "vivaldi", url: "https://repo.vivaldi.com/stable/linux_signing_key.pub" }]
+baseline_apt_gpg_keys: []
+
 # Machine observability settings
 baseline_install_observability: true
 baseline_enable_node_exporter: false

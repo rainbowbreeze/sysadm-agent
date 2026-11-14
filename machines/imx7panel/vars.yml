@@ -2,3 +2,7 @@
 machine_hostname: "imx7panel"
 baseline_timezone: "Europe/Rome"
 baseline_ssh_pub_key_file: "{{ playbook_dir }}/../../ssh_keys/sysadm-agent.pub"
+
+baseline_apt_gpg_keys:
+  - name: vivaldi
+    url: "https://repo.vivaldi.com/stable/linux_signing_key.pub"
