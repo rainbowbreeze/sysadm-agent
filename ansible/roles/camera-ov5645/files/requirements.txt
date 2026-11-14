@@ -1,0 +1,9 @@
+# ==============================================================================
+# File: requirements.txt
+# Remote Path: /opt/camera/requirements.txt
+# Description: Python package requirements for the OV5645 MIPI-CSI camera
+#              controller. All I2C, V4L2, GPIO, and GStreamer capture operations
+#              in camera.py use Python's built-in standard library modules
+#              (argparse, errno, fcntl, glob, json, os, shutil, subprocess, sys,
+#              tempfile, time) for zero-dependency execution on the host.
+# ==============================================================================

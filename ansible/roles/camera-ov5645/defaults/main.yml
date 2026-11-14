@@ -1,0 +1,27 @@
+---
+# Module: camera-ov5645
+# Description: Configures MIPI-CSI V4L2/I2C device permissions, boot-time 24MHz master clock (CCM_CLKO1) initialization, GStreamer capture pipeline dependencies, and deploys the OmniVision OV5645/OV5640 camera driver and CLI (/usr/local/bin/camera) for TechNexion PICO-PI-IMX7D (NXP i.MX7D) hardware.
+# Supported OS Families: Debian
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
+
+camera_ov5645_install_dir: "/opt/camera"
+camera_ov5645_python_venv: "/opt/camera/venv"
+camera_ov5645_cli_path: "/usr/local/bin/camera"
+camera_ov5645_group: "{{ ansible_user }}"
+camera_ov5645_video_device: "/dev/video1"
+camera_ov5645_i2c_bus: "/dev/i2c-3"
+camera_ov5645_i2c_address: "0x3c"
+camera_ov5645_default_width: 1920
+camera_ov5645_default_height: 1080
+camera_ov5645_default_rotate: 180
+camera_ov5645_default_warmup: 15
+camera_ov5645_default_quality: 95
+camera_ov5645_packages:
+  - busybox
+  - gstreamer1.0-plugins-base
+  - gstreamer1.0-plugins-good
+  - gstreamer1.0-tools
+  - i2c-tools
+  - python3
+  - python3-venv
+  - v4l-utils

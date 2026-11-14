@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# File: /usr/local/sbin/camera-init.sh
+# Description: Boot-time hardware initialization for the TechNexion PICO-PI-IMX7D
+#              MIPI-CSI Camera subsystem (OmniVision OV5645 / OV5640):
+#                1. Enables the 24MHz master clock (CCM_CLKO1 on GPIO1_IO02)
+#                2. Sets root:{{ camera_ov5645_group }} (0660) permissions on
+#                   /dev/i2c-3, /dev/video*, /dev/v4l-subdev*, and /dev/media*
+#                3. Ensures camera control GPIOs (gpio4 PWDN, gpio5 RST) are free
+#                   for kernel driver binding
+#                4. Re-probes ov5645_camera_mipi_int / ov5640_camera_mipi_v2 if loaded
+# ==============================================================================
+set -euo pipefail
+
+# 1. Enable 24MHz master clock output (CLKO1 on GPIO1_IO02)
+if command -v busybox >/dev/null 2>&1; then
+    busybox devmem 0x3038bd80 32 0x10000000 2>/dev/null || true
+fi
+
+# 2. Set group and permissions on camera device nodes
+chgrp {{ camera_ov5645_group }} /dev/i2c-3 /dev/video* /dev/v4l-subdev* /dev/media* 2>/dev/null || true
+chmod 0660 /dev/i2c-3 /dev/video* /dev/v4l-subdev* /dev/media* 2>/dev/null || true
+
+# 3. Ensure camera control GPIOs (gpio4, gpio5) are free for driver binding
+for pin in 4 5; do
+    if [[ -d "/sys/class/gpio/gpio${pin}" ]]; then
+        echo "${pin}" > /sys/class/gpio/unexport 2>/dev/null || true
+    fi
+done
+
+# 4. Attempt to trigger module probe if driver is loaded
+if lsmod | grep -qw "ov5645_camera_mipi_int"; then
+    rmmod ov5645_camera_mipi_int 2>/dev/null || true
+    modprobe ov5645_camera_mipi_int 2>/dev/null || true
+elif lsmod | grep -qw "ov5640_camera_mipi_v2"; then
+    rmmod ov5640_camera_mipi_v2 2>/dev/null || true
+    modprobe ov5640_camera_mipi_v2 2>/dev/null || true
+fi

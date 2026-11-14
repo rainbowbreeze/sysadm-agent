@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# File: {{ camera_ov5645_install_dir }}/camera.sh
+# Symlinked Location: {{ camera_ov5645_cli_path }}
+# Description: Top-level CLI wrapper for the TechNexion PICO-PI-IMX7D MIPI-CSI
+#              Camera module (OmniVision OV5645 / OV5640).
+#
+# Supported Commands:
+#   camera status             Display hardware status, I2C probe, and V4L2 info
+#   camera status --json      Output status as JSON
+#   camera capture [file]     Capture snapshot JPEG (default: /tmp/camera_snapshot_<ts>.jpg)
+#   camera snapshot [file]    Alias for capture
+#   camera detect             Quick diagnostic probe of camera hardware
+# ==============================================================================
+set -euo pipefail
+
+PROJECT_DIR="{{ camera_ov5645_install_dir }}"
+VENV_ACTIVATE="{{ camera_ov5645_python_venv }}/bin/activate"
+PYTHON_SCRIPT="${PROJECT_DIR}/camera.py"
+
+if [[ ! -f "${PYTHON_SCRIPT}" ]]; then
+    printf '[ERROR] Missing %s\n' "${PYTHON_SCRIPT}" >&2
+    exit 1
+fi
+
+if [[ -f "${VENV_ACTIVATE}" ]]; then
+    # shellcheck disable=SC1090
+    source "${VENV_ACTIVATE}"
+fi
+
+export CAMERA_VIDEO_DEV="${CAMERA_VIDEO_DEV:-{{ camera_ov5645_video_device }}}"
+export CAMERA_I2C_BUS="${CAMERA_I2C_BUS:-{{ camera_ov5645_i2c_bus }}}"
+export CAMERA_I2C_ADDR="${CAMERA_I2C_ADDR:-{{ camera_ov5645_i2c_address }}}"
+export CAMERA_DEFAULT_WIDTH="${CAMERA_DEFAULT_WIDTH:-{{ camera_ov5645_default_width }}}"
+export CAMERA_DEFAULT_HEIGHT="${CAMERA_DEFAULT_HEIGHT:-{{ camera_ov5645_default_height }}}"
+export CAMERA_DEFAULT_ROTATE="${CAMERA_DEFAULT_ROTATE:-{{ camera_ov5645_default_rotate }}}"
+export CAMERA_DEFAULT_WARMUP="${CAMERA_DEFAULT_WARMUP:-{{ camera_ov5645_default_warmup }}}"
+export CAMERA_DEFAULT_QUALITY="${CAMERA_DEFAULT_QUALITY:-{{ camera_ov5645_default_quality }}}"
+
+exec python3 "${PYTHON_SCRIPT}" "$@"

@@ -1,0 +1,13 @@
+[Unit]
+Description=MIPI-CSI Camera Hardware Initialization Service
+DefaultDependencies=no
+After=systemd-udev-settle.service
+Before=basic.target shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/camera-init.sh
+
+[Install]
+WantedBy=basic.target

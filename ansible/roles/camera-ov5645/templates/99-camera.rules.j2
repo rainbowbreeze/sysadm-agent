@@ -1,0 +1,5 @@
+# Udev rules for TechNexion MIPI-CSI Camera (OV5645/OV5640), I2C, and V4L2 devices
+KERNEL=="video[0-9]*", GROUP="{{ camera_ov5645_group }}", MODE="0660"
+KERNEL=="v4l-subdev[0-9]*", GROUP="{{ camera_ov5645_group }}", MODE="0660"
+KERNEL=="media[0-9]*", GROUP="{{ camera_ov5645_group }}", MODE="0660"
+KERNEL=="i2c-3", GROUP="{{ camera_ov5645_group }}", MODE="0660"

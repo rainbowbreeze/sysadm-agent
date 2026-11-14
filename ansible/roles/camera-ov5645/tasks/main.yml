@@ -1,0 +1,98 @@
+---
+- name: Verify target OS is supported by camera-ov5645
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["os_family"] in ["Debian"]
+    fail_msg: "Module camera-ov5645 only supports Debian/Ubuntu (found {{ ansible_facts['os_family'] }})."
+
+- name: Install V4L2, GStreamer, I2C, and Python dependencies for OV5645 MIPI-CSI camera
+  ansible.builtin.package:
+    name: "{{ camera_ov5645_packages }}"
+    state: present
+
+- name: Ensure camera user belongs to video group
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups:
+      - video
+    append: true
+
+- name: Ensure camera installation directory exists
+  ansible.builtin.file:
+    path: "{{ camera_ov5645_install_dir }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ camera_ov5645_group }}"
+    mode: "0775"
+
+- name: Create isolated Python virtualenv for camera controller
+  ansible.builtin.command:
+    cmd: "python3 -m venv {{ camera_ov5645_python_venv }}"
+    creates: "{{ camera_ov5645_python_venv }}/bin/activate"
+
+- name: Deploy OV5645 MIPI-CSI camera Python controller and CLI
+  ansible.builtin.copy:
+    src: camera.py
+    dest: "{{ camera_ov5645_install_dir }}/camera.py"
+    owner: "{{ ansible_user }}"
+    group: "{{ camera_ov5645_group }}"
+    mode: "0755"
+
+- name: Deploy camera requirements.txt
+  ansible.builtin.copy:
+    src: requirements.txt
+    dest: "{{ camera_ov5645_install_dir }}/requirements.txt"
+    owner: "{{ ansible_user }}"
+    group: "{{ camera_ov5645_group }}"
+    mode: "0644"
+
+- name: Deploy camera CLI wrapper script
+  ansible.builtin.template:
+    src: camera.sh.j2
+    dest: "{{ camera_ov5645_install_dir }}/camera.sh"
+    owner: "{{ ansible_user }}"
+    group: "{{ camera_ov5645_group }}"
+    mode: "0755"
+
+- name: Symlink camera CLI into /usr/local/bin/camera
+  ansible.builtin.file:
+    src: "{{ camera_ov5645_install_dir }}/camera.sh"
+    dest: "{{ camera_ov5645_cli_path }}"
+    state: link
+    force: true
+
+- name: Configure udev rules for MIPI-CSI camera V4L2, media, and I2C devices
+  ansible.builtin.template:
+    src: 99-camera.rules.j2
+    dest: /etc/udev/rules.d/99-camera.rules
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload udev rules for camera-ov5645
+    - Restart camera-init service
+
+- name: Install MIPI-CSI camera hardware initialization script
+  ansible.builtin.template:
+    src: camera-init.sh.j2
+    dest: /usr/local/sbin/camera-init.sh
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart camera-init service
+
+- name: Install camera-init systemd service
+  ansible.builtin.copy:
+    src: camera-init.service
+    dest: /etc/systemd/system/camera-init.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart camera-init service
+
+- name: Ensure camera-init systemd service is enabled and started
+  ansible.builtin.systemd:
+    name: camera-init.service
+    daemon_reload: true
+    state: started
+    enabled: true

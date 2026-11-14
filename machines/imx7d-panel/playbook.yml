@@ -10,3 +10,5 @@
       tags: [baseline]
     - role: rainbowhat-imx7d
       tags: [rainbowhat-imx7d]
+    - role: camera-ov5645
+      tags: [camera-ov5645]
