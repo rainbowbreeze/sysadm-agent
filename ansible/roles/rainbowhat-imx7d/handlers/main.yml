@@ -1,0 +1,13 @@
+---
+- name: Reload udev rules for Rainbow HAT
+  ansible.builtin.shell: |
+    udevadm control --reload-rules || true
+    udevadm trigger || true
+  changed_when: true
+
+- name: Restart rainbowhat-init service
+  ansible.builtin.systemd:
+    name: rainbowhat-init.service
+    daemon_reload: true
+    state: restarted
+    enabled: true

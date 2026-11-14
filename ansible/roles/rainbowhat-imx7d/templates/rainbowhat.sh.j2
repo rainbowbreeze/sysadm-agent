@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# File: {{ rainbowhat_install_dir }}/rainbowhat.sh
+# Description: Helper wrapper script to control the Rainbow HAT lights (3 button
+#              LEDs + 7 APA102 RGB LEDs), 4-digit 14-segment display, BMP280
+#              temperature/pressure sensor, capacitive touch buttons (A, B, C),
+#              and piezo buzzer on TechNexion PICO-PI-IMX7D.
+# ==============================================================================
+set -euo pipefail
+
+PROJECT_DIR="{{ rainbowhat_install_dir }}"
+VENV_ACTIVATE="{{ rainbowhat_python_venv }}/bin/activate"
+PYTHON_SCRIPT="${PROJECT_DIR}/rainbowhat.py"
+
+if [[ ! -f "${PYTHON_SCRIPT}" ]]; then
+    printf '[ERROR] Missing %s\n' "${PYTHON_SCRIPT}" >&2
+    exit 1
+fi
+
+if [[ -f "${VENV_ACTIVATE}" ]]; then
+    # shellcheck disable=SC1090
+    source "${VENV_ACTIVATE}"
+fi
+
+exec python3 "${PYTHON_SCRIPT}" "$@"

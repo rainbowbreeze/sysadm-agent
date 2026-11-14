@@ -10,9 +10,9 @@ This file is the **entry point for any AI agent** working in this repository. Re
 
 1. **Composable Ansible Modules (`ansible/roles/`)**:
    - Every target machine first runs the mandatory **`baseline`** role (`ansible/roles/baseline/`), which configures the hostname, timezone, passwordless SSH key authorization, package updates and cache cleanup, observability tools, and hardens `sshd` on port **`21979`**.
-   - Machines then combine any number of self-contained feature/hardware modules from `ansible/roles/<module_name>/` (e.g., `rainbowhat`, `camera_<variant>`, `screen_<variant>`).
+   - Machines then combine any number of self-contained feature/hardware modules from `ansible/roles/<module_name>/` (e.g., `rainbowhat-imx7d`, `rainbowhat-raspberry`, `camera_<variant>`, `screen_<variant>`).
    - Target machines run **Debian/Ubuntu (`Debian`)** or **Alpine (`Alpine`)**.
-   - Each role's `defaults/main.yml` contains a structured comment header documenting its purpose, supported OS families, default variables, and any required secret parameters in `machines/<MACHINE_NAME>/secrets.yml`. Agents discover modules dynamically by listing `ansible/roles/` and reading `defaults/main.yml`.
+   - Each role's `defaults/main.yml` contains a structured comment header documenting its purpose, supported OS families, default variables, and any required secret parameters in `machines/<MACHINE_NAME>/secrets.yml`, while `ansible/roles/<module_name>/README.md` documents the hardware mapping and how to control/use the module on the target machine. Agents discover modules dynamically by listing `ansible/roles/` and reading `defaults/main.yml` and `README.md`.
 
 2. **Public Configs vs. Per-Machine Local Secrets**:
    - **Committed to GitHub**: Per-machine public Ansible files in `machines/<MACHINE_NAME>/` (`inventory.yml`, `vars.yml`, `playbook.yml`), roles in `ansible/roles/`, and runner scripts in `scripts/`.

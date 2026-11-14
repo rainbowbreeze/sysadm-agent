@@ -1,0 +1,105 @@
+---
+- name: Verify target OS is supported by rainbowhat-imx7d
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["os_family"] in ["Debian"]
+    fail_msg: "Module rainbowhat-imx7d only supports Debian/Ubuntu (found {{ ansible_facts['os_family'] }})."
+
+- name: Install I2C and Python dependencies for Rainbow HAT (i.MX7D)
+  ansible.builtin.package:
+    name: "{{ rainbowhat_packages }}"
+    state: present
+
+- name: Persist i2c-dev and spidev kernel modules
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/rainbowhat.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {% if rainbowhat_enable_i2c %}
+      i2c-dev
+      {% endif %}
+      {% if rainbowhat_enable_spi %}
+      spidev
+      {% endif %}
+
+- name: Ensure Rainbow HAT installation directory exists
+  ansible.builtin.file:
+    path: "{{ rainbowhat_install_dir }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ rainbowhat_group }}"
+    mode: "0775"
+
+- name: Create isolated Python virtualenv for Rainbow HAT
+  ansible.builtin.command:
+    cmd: "python3 -m venv {{ rainbowhat_python_venv }}"
+    creates: "{{ rainbowhat_python_venv }}/bin/activate"
+
+- name: Deploy Rainbow HAT pure-Python driver and CLI for i.MX7D
+  ansible.builtin.copy:
+    src: rainbowhat.py
+    dest: "{{ rainbowhat_install_dir }}/rainbowhat.py"
+    owner: "{{ ansible_user }}"
+    group: "{{ rainbowhat_group }}"
+    mode: "0755"
+
+- name: Deploy Rainbow HAT requirements.txt
+  ansible.builtin.copy:
+    src: requirements.txt
+    dest: "{{ rainbowhat_install_dir }}/requirements.txt"
+    owner: "{{ ansible_user }}"
+    group: "{{ rainbowhat_group }}"
+    mode: "0644"
+
+- name: Deploy Rainbow HAT CLI wrapper script
+  ansible.builtin.template:
+    src: rainbowhat.sh.j2
+    dest: "{{ rainbowhat_install_dir }}/rainbowhat.sh"
+    owner: "{{ ansible_user }}"
+    group: "{{ rainbowhat_group }}"
+    mode: "0755"
+
+- name: Symlink rainbowhat CLI into /usr/local/bin/rainbowhat
+  ansible.builtin.file:
+    src: "{{ rainbowhat_install_dir }}/rainbowhat.sh"
+    dest: "{{ rainbowhat_cli_path }}"
+    state: link
+    force: true
+
+- name: Configure udev rules for Rainbow HAT I2C, SPI, and GPIO devices
+  ansible.builtin.template:
+    src: 99-rainbowhat.rules.j2
+    dest: /etc/udev/rules.d/99-rainbowhat.rules
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload udev rules for Rainbow HAT
+    - Restart rainbowhat-init service
+
+- name: Install Rainbow HAT GPIO and PWM initialization script
+  ansible.builtin.template:
+    src: rainbowhat-gpio-init.sh.j2
+    dest: /usr/local/sbin/rainbowhat-gpio-init.sh
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart rainbowhat-init service
+
+- name: Install rainbowhat-init systemd service
+  ansible.builtin.copy:
+    src: rainbowhat-init.service
+    dest: /etc/systemd/system/rainbowhat-init.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart rainbowhat-init service
+
+- name: Ensure rainbowhat-init systemd service is enabled and started
+  ansible.builtin.systemd:
+    name: rainbowhat-init.service
+    daemon_reload: true
+    state: started
+    enabled: true

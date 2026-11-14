@@ -1,0 +1,11 @@
+[Unit]
+Description=Initialize Rainbow HAT I2C/SPI/GPIO/PWM permissions and export pins
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rainbowhat-gpio-init.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

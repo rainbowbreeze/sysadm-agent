@@ -8,5 +8,5 @@
   roles:
     - role: baseline
       tags: [baseline]
-    - role: rainbowhat
-      tags: [rainbowhat]
+    - role: rainbowhat-imx7d
+      tags: [rainbowhat-imx7d]

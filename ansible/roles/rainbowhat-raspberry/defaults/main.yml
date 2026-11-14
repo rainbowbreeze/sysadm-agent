@@ -1,6 +1,6 @@
 ---
-# Module: rainbowhat
-# Description: Configures I2C/SPI kernel modules and installs Pimoroni Rainbow HAT Python libraries in an isolated virtualenv.
+# Module: rainbowhat-raspberry
+# Description: Configures I2C/SPI kernel modules and installs Pimoroni Rainbow HAT Python libraries in an isolated virtualenv for Raspberry Pi hardware.
 # Supported OS Families: Debian
 # Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
 
@@ -12,3 +12,6 @@ rainbowhat_packages:
   - python3
   - python3-venv
   - python3-pip
+  - python3-dev
+  - python3-smbus
+  - build-essential

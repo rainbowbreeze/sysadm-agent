@@ -1,0 +1,6 @@
+# Rainbow HAT I2C bus (HT16K33 0x70 & BMP280 0x77)
+KERNEL=="i2c-0", GROUP="{{ rainbowhat_group }}", MODE="0660"
+# Rainbow HAT SPI bus (7x APA102 RGB LEDs)
+KERNEL=="spidev2.0", GROUP="{{ rainbowhat_group }}", MODE="0660"
+# GPIO character devices
+KERNEL=="gpiochip*", GROUP="{{ rainbowhat_group }}", MODE="0660"

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# File: /usr/local/sbin/rainbowhat-gpio-init.sh
+# Description: Idempotently exports and sets group-restricted (root:{{ rainbowhat_group }} 0660)
+#              permissions for all Rainbow HAT GPIO and PWM sysfs nodes:
+#                - Button LEDs (outputs):  Green=gpio32, Red=gpio34, Blue=gpio37
+#                - Touch Buttons (inputs): Button A=gpio35, Button B=gpio33, Button C=gpio39
+#                - Piezo Buzzer (PWM):     /sys/class/pwm/pwmchip1/pwm0 (PWM2)
+# ==============================================================================
+set -euo pipefail
+
+chgrp {{ rainbowhat_group }} /dev/i2c-0 /dev/spidev2.0 /dev/gpiochip* 2>/dev/null || true
+chmod 0660 /dev/i2c-0 /dev/spidev2.0 /dev/gpiochip* 2>/dev/null || true
+chgrp {{ rainbowhat_group }} /sys/class/gpio/export /sys/class/gpio/unexport 2>/dev/null || true
+chmod 0660 /sys/class/gpio/export /sys/class/gpio/unexport 2>/dev/null || true
+
+configure_gpio_pin() {
+    local pin="$1"
+    local target_dir="$2"
+    local gpio_path="/sys/class/gpio/gpio${pin}"
+
+    if [[ ! -d "${gpio_path}" ]]; then
+        echo "${pin}" > /sys/class/gpio/export 2>/dev/null || true
+    fi
+    if [[ -d "${gpio_path}" ]]; then
+        local current_dir
+        current_dir="$(cat "${gpio_path}/direction" 2>/dev/null || true)"
+        if [[ "${current_dir}" != "${target_dir}" ]]; then
+            echo "${target_dir}" > "${gpio_path}/direction" 2>/dev/null || true
+        fi
+        chgrp {{ rainbowhat_group }} "${gpio_path}/direction" "${gpio_path}/value" 2>/dev/null || true
+        chmod 0660 "${gpio_path}/direction" "${gpio_path}/value" 2>/dev/null || true
+    fi
+}
+
+# Configure discrete LED outputs (Red=34, Green=32, Blue=37)
+for pin in 32 34 37; do
+    configure_gpio_pin "${pin}" "out"
+done
+
+# Configure capacitive touch button inputs (Button B=33, Button A=35, Button C=39)
+for pin in 33 35 39; do
+    configure_gpio_pin "${pin}" "in"
+done
+
+# Export and configure PWM channels (pwmchip1 = PWM2 Piezo, pwmchip2 = PWM3 Servo)
+for chip in /sys/class/pwm/pwmchip1 /sys/class/pwm/pwmchip2; do
+    if [[ -d "${chip}" ]]; then
+        chgrp {{ rainbowhat_group }} "${chip}/export" "${chip}/unexport" 2>/dev/null || true
+        chmod 0660 "${chip}/export" "${chip}/unexport" 2>/dev/null || true
+        if [[ ! -d "${chip}/pwm0" ]]; then
+            echo 0 > "${chip}/export" 2>/dev/null || true
+        fi
+        if [[ -d "${chip}/pwm0" ]]; then
+            chgrp {{ rainbowhat_group }} "${chip}/pwm0/enable" "${chip}/pwm0/period" "${chip}/pwm0/duty_cycle" "${chip}/pwm0/polarity" 2>/dev/null || true
+            chmod 0660 "${chip}/pwm0/enable" "${chip}/pwm0/period" "${chip}/pwm0/duty_cycle" "${chip}/pwm0/polarity" 2>/dev/null || true
+        fi
+    fi
+done

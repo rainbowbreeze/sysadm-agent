@@ -1,0 +1,16 @@
+---
+# Module: rainbowhat-imx7d
+# Description: Configures I2C/SPI/GPIO/PWM permissions, boot-time pin initialization, and deploys the pure-Python Rainbow HAT driver and CLI (/usr/local/bin/rainbowhat) for TechNexion PICO-PI-IMX7D (NXP i.MX7D) hardware.
+# Supported OS Families: Debian
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
+
+rainbowhat_enable_i2c: true
+rainbowhat_enable_spi: true
+rainbowhat_install_dir: "/opt/rainbowhat"
+rainbowhat_python_venv: "/opt/rainbowhat/venv"
+rainbowhat_cli_path: "/usr/local/bin/rainbowhat"
+rainbowhat_group: "{{ ansible_user }}"
+rainbowhat_packages:
+  - i2c-tools
+  - python3
+  - python3-venv

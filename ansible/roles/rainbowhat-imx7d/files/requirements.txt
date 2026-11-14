@@ -1,0 +1,9 @@
+# ==============================================================================
+# File: requirements.txt
+# Remote Path: /opt/rainbowhat/requirements.txt
+# Description: Python package requirements for the Rainbow HAT controller.
+#              All I2C, SPI, GPIO, and PWM hardware operations in rainbowhat.py
+#              use Python's built-in standard library modules (os, fcntl,
+#              struct, time, datetime, json, argparse) for zero-dependency
+#              execution on the TechNexion PICO-PI-IMX7D host.
+# ==============================================================================
