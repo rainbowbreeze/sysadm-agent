@@ -1,6 +1,6 @@
 ---
-- name: Configure machine imx7panel
-  hosts: imx7panel
+- name: Configure machine imx7d-panel
+  hosts: imx7d-panel
   become: true
   vars_files:
     - vars.yml

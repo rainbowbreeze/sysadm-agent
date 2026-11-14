@@ -1,6 +1,6 @@
 all:
   hosts:
-    imx7panel:
+    imx7d-panel:
       ansible_host: "{{ machine_ip }}"
       ansible_port: "{{ machine_ssh_port | default(21979, true) | int }}"
       ansible_user: "{{ machine_ssh_user }}"
