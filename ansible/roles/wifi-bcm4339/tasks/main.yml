@@ -1,0 +1,154 @@
+---
+- name: Verify target OS and kernel version are supported by wifi-bcm4339
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["os_family"] in ["Debian"]
+      - ansible_facts["kernel"] == wifi_bcm4339_kernel_version
+    fail_msg: >-
+      Module wifi-bcm4339 requires Debian/Ubuntu with kernel {{ wifi_bcm4339_kernel_version }}
+      (found OS family={{ ansible_facts['os_family'] }}, kernel={{ ansible_facts['kernel'] }}).
+
+- name: Ensure Broadcom kernel module and firmware directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "/lib/modules/{{ wifi_bcm4339_kernel_version }}/kernel/drivers/net/wireless/broadcom/brcm80211/brcmfmac"
+    - "/lib/modules/{{ wifi_bcm4339_kernel_version }}/kernel/drivers/net/wireless/broadcom/brcm80211/brcmutil"
+    - "/lib/firmware/brcm"
+
+- name: Install prebuilt brcmfmac.ko kernel module
+  ansible.builtin.copy:
+    src: brcmfmac.ko
+    dest: "/lib/modules/{{ wifi_bcm4339_kernel_version }}/kernel/drivers/net/wireless/broadcom/brcm80211/brcmfmac/brcmfmac.ko"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Run depmod for wifi-bcm4339
+
+- name: Install prebuilt brcmutil.ko kernel module
+  ansible.builtin.copy:
+    src: brcmutil.ko
+    dest: "/lib/modules/{{ wifi_bcm4339_kernel_version }}/kernel/drivers/net/wireless/broadcom/brcm80211/brcmutil/brcmutil.ko"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Run depmod for wifi-bcm4339
+
+- name: Install BCM4339 SDIO WiFi firmware binary (brcmfmac4339-sdio.bin)
+  ansible.builtin.copy:
+    src: cyfmac4339-sdio.bin
+    dest: /lib/firmware/brcm/brcmfmac4339-sdio.bin
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install BCM4339 SDIO WiFi NVRAM calibration file (brcmfmac4339-sdio.txt)
+  ansible.builtin.copy:
+    src: brcmfmac4339-sdio.txt
+    dest: /lib/firmware/brcm/brcmfmac4339-sdio.txt
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install BCM4339 Bluetooth UART patchram firmware (BCM4339A0.hcd & BCM4335C0.hcd)
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - src: BCM4339A0.hcd
+      dest: /lib/firmware/brcm/BCM4339A0.hcd
+    - src: BCM4335C0.hcd
+      dest: /lib/firmware/brcm/BCM4335C0.hcd
+
+- name: Install brcm-bluetooth.service systemd unit
+  ansible.builtin.copy:
+    src: brcm-bluetooth.service
+    dest: /etc/systemd/system/brcm-bluetooth.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload systemd for wifi-bcm4339
+
+- name: Ensure brcm-bluetooth.service is enabled
+  ansible.builtin.systemd:
+    name: brcm-bluetooth.service
+    daemon_reload: true
+    enabled: "{{ wifi_bcm4339_enable_bluetooth_service | bool }}"
+
+- name: Stage prebuilt imx7d-pico-pi-brcm.dtb in /lib/firmware/brcm
+  ansible.builtin.copy:
+    src: imx7d-pico-pi-brcm.dtb
+    dest: /lib/firmware/brcm/imx7d-pico-pi-brcm.dtb
+    owner: root
+    group: root
+    mode: "0644"
+  register: wifi_bcm4339_dtb_staged
+
+- name: Stage U-Boot uEnv.txt configuration in /lib/firmware/brcm
+  ansible.builtin.template:
+    src: uEnv.txt.j2
+    dest: /lib/firmware/brcm/uEnv.txt
+    owner: root
+    group: root
+    mode: "0644"
+  register: wifi_bcm4339_uenv_staged
+
+- name: Install boot partition DTB/uEnv updater helper script
+  ansible.builtin.template:
+    src: update-boot-dtb.py.j2
+    dest: /usr/local/sbin/wifi-bcm4339-update-boot.py
+    owner: root
+    group: root
+    mode: "0755"
+  register: wifi_bcm4339_updater_script
+
+- name: Check if active device-tree already includes usdhc2_pwrseq (mmc-pwrseq-simple)
+  ansible.builtin.stat:
+    path: /proc/device-tree/usdhc2_pwrseq
+  register: wifi_bcm4339_pwrseq_stat
+
+- name: Update imx7d-pico-pi.dtb and uEnv.txt on U-Boot partition ({{ wifi_bcm4339_boot_partition }})
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/wifi-bcm4339-update-boot.py
+  when:
+    - wifi_bcm4339_dtb_staged.changed or wifi_bcm4339_uenv_staged.changed or wifi_bcm4339_updater_script.changed or not wifi_bcm4339_pwrseq_stat.stat.exists
+  register: wifi_bcm4339_boot_updated
+  changed_when: "'UPDATED' in wifi_bcm4339_boot_updated.stdout"
+
+- name: Flush handlers before optional reboot
+  ansible.builtin.meta: flush_handlers
+
+- name: Reboot board to activate new Broadcom WiFi DTB and uEnv.txt
+  ansible.builtin.reboot:
+    msg: "Rebooting to load imx7d-pico-pi.dtb (wifi_module=brcm) for BCM4339 WiFi"
+    reboot_timeout: 300
+  when:
+    - wifi_bcm4339_reboot_on_boot_change | bool
+    - (wifi_bcm4339_boot_updated is defined and wifi_bcm4339_boot_updated.changed) or not wifi_bcm4339_pwrseq_stat.stat.exists
+
+- name: Ensure brcmfmac kernel module is loaded
+  ansible.builtin.command:
+    cmd: modprobe brcmfmac
+  changed_when: false
+
+- name: Verify wlan0 wireless network interface is present
+  ansible.builtin.stat:
+    path: /sys/class/net/wlan0
+  register: wifi_bcm4339_wlan0_stat
+  failed_when: not wifi_bcm4339_wlan0_stat.stat.exists
+
+- name: Connect to configured WiFi network via NetworkManager when wifi_bcm4339_ssid is provided
+  ansible.builtin.command:
+    cmd: "nmcli dev wifi connect {{ wifi_bcm4339_ssid | quote }} password {{ wifi_bcm4339_password | quote }}"
+  when:
+    - wifi_bcm4339_ssid | length > 0
+  register: wifi_bcm4339_nmcli_connect
+  changed_when: "'successfully activated' in wifi_bcm4339_nmcli_connect.stdout"
+  no_log: true

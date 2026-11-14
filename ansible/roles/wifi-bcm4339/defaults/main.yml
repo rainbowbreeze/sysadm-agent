@@ -1,0 +1,18 @@
+---
+# Module: wifi-bcm4339
+# Description: Installs the prebuilt Broadcom BCM4339 (AMPAK AP6335) SDIO WiFi kernel modules (brcmfmac.ko, brcmutil.ko), WiFi/Bluetooth firmware (brcmfmac4339-sdio.bin, brcmfmac4339-sdio.txt, BCM4339A0.hcd, BCM4335C0.hcd), brcm-bluetooth.service, and custom Device Tree Blob (imx7d-pico-pi-brcm.dtb with mmc-pwrseq-simple and bt_rfkill) on TechNexion PICO-PI-IMX7D (kernel 5.15.71).
+# Supported OS Families: Debian
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
+
+wifi_bcm4339_kernel_version: "5.15.71"
+wifi_bcm4339_boot_partition: "/dev/mmcblk2p1"
+wifi_bcm4339_boot_mount_point: "/mnt"
+wifi_bcm4339_uenv_baseboard: "pi"
+wifi_bcm4339_uenv_displayinfo: "video=mxcfb0:dev=lcd,800x480@60,if=RGB24,bpp=32"
+wifi_bcm4339_uenv_wifi_module: "brcm"
+wifi_bcm4339_uenv_display_autodetect: "off"
+wifi_bcm4339_enable_bluetooth_service: true
+wifi_bcm4339_preserve_camera_dtb: true
+wifi_bcm4339_reboot_on_boot_change: true
+wifi_bcm4339_ssid: ""
+wifi_bcm4339_password: ""

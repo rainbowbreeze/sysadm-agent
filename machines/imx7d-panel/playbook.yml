@@ -12,3 +12,5 @@
       tags: [rainbowhat-imx7d]
     - role: camera-ov5645
       tags: [camera-ov5645]
+    - role: wifi-bcm4339
+      tags: [wifi-bcm4339]

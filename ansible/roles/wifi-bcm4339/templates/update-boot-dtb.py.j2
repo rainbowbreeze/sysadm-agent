@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""
+Idempotently updates /mnt/imx7d-pico-pi.dtb and /mnt/uEnv.txt on the U-Boot
+boot partition ({{ wifi_bcm4339_boot_partition }}), optionally patching the
+ov5645_mipi@3c camera device-tree node into imx7d-pico-pi.dtb when
+wifi_bcm4339_preserve_camera_dtb is enabled.
+"""
+
+import hashlib
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+
+BOOT_PART = "{{ wifi_bcm4339_boot_partition }}"
+MOUNT_POINT = "{{ wifi_bcm4339_boot_mount_point }}"
+STAGED_DTB = "/lib/firmware/brcm/imx7d-pico-pi-brcm.dtb"
+STAGED_UENV = "/lib/firmware/brcm/uEnv.txt"
+PRESERVE_CAMERA = {{ "True" if (wifi_bcm4339_preserve_camera_dtb | bool) else "False" }}
+
+
+def sha256sum(path):
+    if not os.path.isfile(path):
+        return None
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def build_merged_dtb(base_brcm_dtb, existing_qca_dtb, out_dtb):
+    """
+    If PRESERVE_CAMERA is enabled and dtc is available (and either /opt/camera
+    exists or existing_qca_dtb contains ov5645_mipi), patch the ov5640_mipi@3c
+    node inside base_brcm_dtb to ov5645_mipi@3c using base_brcm_dtb's own
+    internal phandles so both Broadcom WiFi (usdhc2_pwrseq) and OV5645 camera
+    work together after reboot.
+    """
+    has_camera = os.path.isdir("/opt/camera")
+    if not has_camera and os.path.isfile(existing_qca_dtb):
+        with open(existing_qca_dtb, "rb") as f:
+            has_camera = b"ov5645_mipi" in f.read()
+
+    if not PRESERVE_CAMERA or not has_camera or not shutil.which("dtc"):
+        shutil.copy2(base_brcm_dtb, out_dtb)
+        return
+
+    brcm_dts = subprocess.run(
+        ["dtc", "-I", "dtb", "-O", "dts", base_brcm_dtb],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=True,
+    ).stdout
+
+    # 1. Remove unused pca9554_tev_mipi@24 I2C expander node
+    brcm_dts = re.sub(
+        r"\t+pca9554_tev_mipi@24 \{.*?\n\t+\};\n\n",
+        "",
+        brcm_dts,
+        count=1,
+        flags=re.DOTALL,
+    )
+
+    # 2. Upgrade ov5640_mipi@3c -> ov5645_mipi@3c preserving brcm_dts phandles
+    def patch_ov5645(match):
+        block = match.group(0)
+        rst_m = re.search(r"rst-gpios = <(0x[0-9a-fA-F]+)\s+0x05\s+0x01>;", block)
+        dovdd_m = re.search(r"DOVDD-supply = <(0x[0-9a-fA-F]+)>;", block)
+        avdd_m = re.search(r"AVDD-supply = <(0x[0-9a-fA-F]+)>;", block)
+        dvdd_m = re.search(r"DVDD-supply = <(0x[0-9a-fA-F]+)>;", block)
+        if not (rst_m and dovdd_m and avdd_m and dvdd_m):
+            return block
+
+        gpio1_ph = rst_m.group(1)
+        dovdd_ph = dovdd_m.group(1)
+        avdd_ph = avdd_m.group(1)
+        dvdd_ph = dvdd_m.group(1)
+
+        block = block.replace("ov5640_mipi@3c {", "ov5645_mipi@3c {", 1)
+        block = block.replace(
+            'compatible = "ovti,ov5640_mipi";',
+            'compatible = "ovti,ov5645", "ovti,ov5645_mipi", "ovti,ov5640_mipi";',
+            1,
+        )
+        block = block.replace(
+            'clock-names = "csi_mclk";',
+            'clock-names = "xclk", "csi_mclk";\n\t\t\t\t\tclock-frequency = <0x16e3600>;',
+            1,
+        )
+        block = re.sub(
+            r"pwn-gpios = <[^>]+>;\n\t+rst-gpios = <[^>]+>;",
+            (
+                f"enable-gpios = <{gpio1_ph} 0x04 0x00>;\n"
+                f"\t\t\t\t\treset-gpios = <{gpio1_ph} 0x05 0x01>;\n"
+                f"\t\t\t\t\tpwn-gpios = <{gpio1_ph} 0x04 0x00>;\n"
+                f"\t\t\t\t\trst-gpios = <{gpio1_ph} 0x05 0x01>;"
+            ),
+            block,
+            count=1,
+        )
+        block = block.replace(
+            f"DOVDD-supply = <{dovdd_ph}>;",
+            (
+                f"vdddo-supply = <{dovdd_ph}>;\n"
+                f"\t\t\t\t\tvdda-supply = <{avdd_ph}>;\n"
+                f"\t\t\t\t\tvddd-supply = <{dvdd_ph}>;\n"
+                f"\t\t\t\t\tDOVDD-supply = <{dovdd_ph}>;"
+            ),
+            1,
+        )
+        block = re.sub(
+            r"(phandle = <0x[0-9a-fA-F]+>;\n)(\t+\};)",
+            r"\1\t\t\t\t\t\t\tclock-lanes = <0x00>;\n\t\t\t\t\t\t\tdata-lanes = <0x01 0x02>;\n\2",
+            block,
+            count=1,
+        )
+        return block
+
+    brcm_dts = re.sub(
+        r"\t+ov5640_mipi@3c \{.*?\n\t+\};",
+        patch_ov5645,
+        brcm_dts,
+        count=1,
+        flags=re.DOTALL,
+    )
+
+    # 3. Ensure vref-1v8 has regulator-always-on
+    brcm_dts = re.sub(
+        r'(regulator-name = "vref-1v8";\n\t+regulator-min-microvolt = <0x1b7740>;\n\t+regulator-max-microvolt = <0x1b7740>;\n)(?!\t+regulator-always-on;)',
+        r"\1\t\t\tregulator-always-on;\n",
+        brcm_dts,
+        count=1,
+    )
+
+    subprocess.run(
+        ["dtc", "-I", "dts", "-O", "dtb", "-o", out_dtb],
+        input=brcm_dts,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=True,
+    )
+
+
+def main():
+    os.makedirs(MOUNT_POINT, exist_ok=True)
+    already_mounted = os.path.ismount(MOUNT_POINT)
+    if not already_mounted:
+        subprocess.run(["mount", BOOT_PART, MOUNT_POINT], check=True)
+
+    changed = False
+    try:
+        dest_dtb = os.path.join(MOUNT_POINT, "imx7d-pico-pi.dtb")
+        qca_dtb = os.path.join(MOUNT_POINT, "imx7d-pico-pi-qca.dtb")
+        dest_uenv = os.path.join(MOUNT_POINT, "uEnv.txt")
+
+        with tempfile.NamedTemporaryFile(prefix="brcm_dtb_", suffix=".dtb", delete=False) as tmp:
+            tmp_dtb = tmp.name
+
+        try:
+            build_merged_dtb(STAGED_DTB, qca_dtb, tmp_dtb)
+            if sha256sum(tmp_dtb) != sha256sum(dest_dtb):
+                shutil.copy2(tmp_dtb, dest_dtb)
+                changed = True
+        finally:
+            if os.path.exists(tmp_dtb):
+                os.unlink(tmp_dtb)
+
+        if sha256sum(STAGED_UENV) != sha256sum(dest_uenv):
+            shutil.copy2(STAGED_UENV, dest_uenv)
+            changed = True
+
+        if changed:
+            subprocess.run(["sync"], check=True)
+    finally:
+        if not already_mounted:
+            subprocess.run(["umount", MOUNT_POINT], check=True)
+
+    print("UPDATED" if changed else "UNCHANGED")
+
+
+if __name__ == "__main__":
+    main()
