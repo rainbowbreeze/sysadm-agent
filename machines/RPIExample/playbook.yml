@@ -1,5 +1,5 @@
 ---
-- name: Configure machine RPIExample
+- name: Configure machine rpiexample
   hosts: rpiexample
   become: true
   vars_files:
@@ -8,5 +8,5 @@
   roles:
     - role: baseline
       tags: [baseline]
-    - role: rainbowhat
-      tags: [rainbowhat]
+    - role: rainbowhat-raspberry
+      tags: [rainbowhat-raspberry]

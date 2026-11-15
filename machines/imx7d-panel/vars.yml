@@ -6,3 +6,10 @@ baseline_ssh_pub_key_file: "{{ playbook_dir }}/../../ssh_keys/sysadm-agent.pub"
 baseline_apt_gpg_keys:
   - name: vivaldi
     url: "https://repo.vivaldi.com/stable/linux_signing_key.pub"
+
+stream_ustreamer_enabled: true
+stream_ustreamer_video_device: "/dev/video1"
+stream_ustreamer_format: "UYVY"
+stream_ustreamer_width: 1280
+stream_ustreamer_height: 960
+stream_ustreamer_fps: 10

@@ -10,3 +10,5 @@
       tags: [baseline]
     - role: camera-huddly-go
       tags: [camera-huddly-go]
+    - role: stream-ustreamer
+      tags: [stream-ustreamer]

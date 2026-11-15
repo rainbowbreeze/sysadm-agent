@@ -5,4 +5,8 @@ baseline_ssh_pub_key_file: "{{ playbook_dir }}/../../ssh_keys/sysadm-agent.pub"
 baseline_enable_node_exporter: true
 
 stream_ustreamer_enabled: true
+stream_ustreamer_video_device: "/dev/video0"
+stream_ustreamer_format: "MJPEG"
+stream_ustreamer_width: 1280
+stream_ustreamer_height: 720
 stream_ustreamer_fps: 15
