@@ -17,7 +17,7 @@ This file is the **entry point for any AI agent** working in this repository. Re
 2. **Public Configs vs. Per-Machine Local Secrets**:
    - **Committed to GitHub**: Per-machine public Ansible files in `machines/<MACHINE_NAME>/` (`inventory.yml`, `vars.yml`, `playbook.yml`), roles in `ansible/roles/`, and runner scripts in `scripts/`.
    - **Kept Local Only (Gitignored)**:
-     - `machines/<MACHINE_NAME>/secrets.yml`: Stores all per-machine private parameters and secrets (`machine_ip`, `machine_ssh_port`, `machine_ssh_user`, optional `machine_ssh_pass` / `machine_become_pass`, and any `<module_name>_*` secrets). Loaded by `playbook.yml` via `vars_files` and referenced in `inventory.yml` (`{{ machine_ip }}`, `{{ machine_ssh_user }}`).
+     - `machines/<MACHINE_NAME>/secrets.yml`: Stores all per-machine private parameters and secrets, including IP addresses, **port addresses** (`machine_ssh_port`, module service ports such as `stream_ustreamer_port`), usernames (`machine_ssh_user`, service auth users), and passwords/tokens (`machine_ssh_pass`, `machine_become_pass`, and any `<module_name>_*` secrets). Loaded by `playbook.yml` via `vars_files` and referenced in `inventory.yml` (`{{ machine_ip }}`, `{{ machine_ssh_port }}`, `{{ machine_ssh_user }}`).
      - `ssh_keys/`: Stores per-machine SSH private and public key pairs (`ssh_keys/<key_name>` and `ssh_keys/<key_name>.pub`) placed manually by the user for passwordless login.
      - `machines/<MACHINE_NAME>/logs/`: Stores raw timestamped Ansible logs (`ansible-<timestamp>.log`, `latest.log`) and the human-readable run log (`history.md`).
 
@@ -84,8 +84,8 @@ Because each machine has its own isolated, gitignored `machines/<MACHINE_NAME>/s
   - `machine_ssh_user` *(required)*
   - `machine_ssh_pass` *(optional — included in `inventory.yml` & `secrets.yml` only when initial SSH password auth is needed)*
   - `machine_become_pass` *(optional — included in `inventory.yml` & `secrets.yml` only when `sudo` requires a password)*
-- **Module-Specific Secrets**:
-  - `<module_name>_<param>` (e.g., `camera_rtsp_password`)
+- **Module-Specific Secrets (including Port Addresses, Usernames & Passwords)**:
+  - `<module_name>_<param>` (e.g., `stream_ustreamer_port`, `stream_ustreamer_user`, `stream_ustreamer_password`, `camera_rtsp_password`)
 - **Referenced in `machines/<MACHINE_NAME>/inventory.yml`**:
   ```yaml
   ansible_host: "{{ machine_ip }}"
@@ -103,8 +103,8 @@ Because each machine has its own isolated, gitignored `machines/<MACHINE_NAME>/s
 2. **Git & Version Control Discipline**:
    - **Never stage (`git add`) or commit (`git commit`) changes** unless explicitly instructed to do so by the user.
 3. **Public Repository Security Invariants**:
-   - **Never hardcode** IP addresses, passwords, tokens, or sensitive usernames in any committed file (`inventory.yml`, `vars.yml`, `playbook.yml`, `ansible/`, `scripts/`).
-   - Store all per-machine private parameters inside gitignored `machines/<MACHINE_NAME>/secrets.yml`, all SSH keys inside `ssh_keys/`, and all execution logs inside `machines/<MACHINE_NAME>/logs/`.
+   - **Never hardcode** IP addresses, **port addresses** (SSH ports or custom module/service ports), passwords, tokens, or sensitive usernames in any committed file (`inventory.yml`, `vars.yml`, `playbook.yml`, `ansible/`, `scripts/`).
+   - Store all per-machine private parameters (including IP addresses, port addresses, usernames, and passwords) inside gitignored `machines/<MACHINE_NAME>/secrets.yml`, all SSH keys inside `ssh_keys/`, and all execution logs inside `machines/<MACHINE_NAME>/logs/`.
 4. **Strict Workflow Isolation**:
    - When configuring or provisioning a machine (`ai-sysadm-configure-machine` / `ai-sysadm-provision-machine`), **never modify** Ansible modules (`ansible/roles/`), `ansible.cfg`, or `scripts/`.
    - When creating or updating a module (`ai-sysadm-create-module`), **never modify** existing machine folders (`machines/<MACHINE_NAME>/`).

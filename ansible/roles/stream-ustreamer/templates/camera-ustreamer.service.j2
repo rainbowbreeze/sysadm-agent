@@ -1,0 +1,26 @@
+[Unit]
+Description=uStreamer HTTP MJPEG & Snapshot Server ({{ stream_ustreamer_video_device }})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ ansible_user }}
+Group={{ stream_ustreamer_group }}
+SupplementaryGroups=video plugdev
+EnvironmentFile={{ stream_ustreamer_install_dir }}/ustreamer.env
+ExecStart=/bin/sh -c 'exec /usr/bin/ustreamer \
+  --device={{ stream_ustreamer_video_device }} \
+  --format={{ stream_ustreamer_format }} \
+  --resolution={{ stream_ustreamer_width }}x{{ stream_ustreamer_height }} \
+  --desired-fps={{ stream_ustreamer_fps }} \
+  --host={{ stream_ustreamer_host }} \
+  --port={{ stream_ustreamer_port }} \
+  {% if stream_ustreamer_slowdown | bool %}--slowdown {% endif %}\
+  {% if stream_ustreamer_user | length > 0 %}--user="${CAMERA_USTREAMER_USER}" --passwd="${CAMERA_USTREAMER_PASSWORD}" {% endif %}\
+  {{ stream_ustreamer_extra_args }}'
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

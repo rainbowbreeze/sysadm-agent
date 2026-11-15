@@ -16,6 +16,7 @@ set -euo pipefail
 
 PROJECT_DIR="{{ camera_huddly_go_install_dir }}"
 VENV_ACTIVATE="{{ camera_huddly_go_python_venv }}/bin/activate"
+USTREAMER_ENV="/opt/ustreamer/ustreamer.env"
 PYTHON_SCRIPT="${PROJECT_DIR}/camera.py"
 
 if [[ ! -f "${PYTHON_SCRIPT}" ]]; then
@@ -26,6 +27,15 @@ fi
 if [[ -f "${VENV_ACTIVATE}" ]]; then
     # shellcheck disable=SC1090
     source "${VENV_ACTIVATE}"
+fi
+
+# If stream-ustreamer module is installed on this machine, load its runtime env
+# so `camera capture` can seamlessly fetch snapshots via uStreamer when active.
+if [[ -r "${USTREAMER_ENV}" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${USTREAMER_ENV}"
+    set +a
 fi
 
 export CAMERA_VIDEO_DEV="${CAMERA_VIDEO_DEV:-{{ camera_huddly_go_video_device }}}"

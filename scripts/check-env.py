@@ -130,6 +130,11 @@ def main() -> int:
     }
 
     secret_refs, ssh_keys = scan_machine_files(machine_dir, defined_public_vars)
+    seen_ref_names = {name for name, _, _ in secret_refs}
+    for extra_key in secret_vars:
+        if extra_key not in seen_ref_names and extra_key not in defined_public_vars:
+            secret_refs.append((extra_key, False, "secrets.yml"))
+            seen_ref_names.add(extra_key)
 
     print(f"=== Checking configuration for machine: {args.machine} ===")
     has_errors = False

@@ -1,0 +1,8 @@
+---
+- name: Restart camera-ustreamer service
+  ansible.builtin.systemd:
+    name: camera-ustreamer.service
+    daemon_reload: true
+    state: restarted
+    enabled: true
+  when: stream_ustreamer_enabled | bool

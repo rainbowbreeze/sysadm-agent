@@ -3,9 +3,9 @@
 camera.py - Huddly GO USB Camera Control and Frame Capture Utility
 ==================================================================
 
-This module provides USB/UVC detection, status inspection, hardware digital PTZ
-control, and MJPEG frame capture capabilities for the Huddly GO wide-angle USB
-camera (USB ID 2bd9:0011).
+This module provides USB/UVC detection, status inspection, uStreamer HTTP
+streaming integration, hardware digital PTZ control, and MJPEG frame capture
+capabilities for the Huddly GO wide-angle USB camera (USB ID 2bd9:0011).
 
 Hardware details:
 - Manufacturer / Model: Huddly / Huddly GO
@@ -14,10 +14,13 @@ Hardware details:
 - V4L2 Capture Device: /dev/video0 (MJPG 1280x720 @ 30fps)
 - V4L2 Metadata Device: /dev/video1
 - Onboard VPU/ISP Warmup: Requires ~60-90 warmup frames (~2-3s) when waking from
-  standby before auto-exposure converges and outputs non-black frames.
+  standby before auto-exposure converges and outputs non-black frames. When
+  uStreamer runs with --slowdown, the VPU stays warm continuously for instant
+  (<20ms) snapshots.
 """
 
 import argparse
+import base64
 import glob
 import json
 import os
@@ -26,6 +29,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 
 DEFAULT_VIDEO_DEV = os.environ.get("CAMERA_VIDEO_DEV", "/dev/video0")
 DEFAULT_USB_VID = os.environ.get("CAMERA_USB_VID", "2bd9").lower()
@@ -37,6 +42,13 @@ DEFAULT_WARMUP = int(os.environ.get("CAMERA_DEFAULT_WARMUP", "90"))
 DEFAULT_ZOOM = int(os.environ.get("CAMERA_DEFAULT_ZOOM", "1000"))
 DEFAULT_PAN = int(os.environ.get("CAMERA_DEFAULT_PAN", "0"))
 DEFAULT_TILT = int(os.environ.get("CAMERA_DEFAULT_TILT", "0"))
+
+USTREAMER_ENABLED = os.environ.get("CAMERA_USTREAMER_ENABLED", "0") == "1"
+USTREAMER_HOST = os.environ.get("CAMERA_USTREAMER_HOST", "0.0.0.0")
+USTREAMER_PORT = int(os.environ.get("CAMERA_USTREAMER_PORT", "8080"))
+USTREAMER_FPS = int(os.environ.get("CAMERA_USTREAMER_FPS", "15"))
+USTREAMER_USER = os.environ.get("CAMERA_USTREAMER_USER", "")
+USTREAMER_PASSWORD = os.environ.get("CAMERA_USTREAMER_PASSWORD", "")
 
 SUPPORTED_RESOLUTIONS = [
     (1280, 720),
@@ -52,6 +64,56 @@ def _read_sysfs(path):
     except Exception:
         pass
     return None
+
+
+def _build_ustreamer_request(path):
+    """Build an authenticated urllib Request to the local uStreamer instance."""
+    url = f"http://127.0.0.1:{USTREAMER_PORT}{path}"
+    req = urllib.request.Request(url)
+    if USTREAMER_USER:
+        token = base64.b64encode(f"{USTREAMER_USER}:{USTREAMER_PASSWORD}".encode("utf-8")).decode("ascii")
+        req.add_header("Authorization", f"Basic {token}")
+    return req
+
+
+def get_ustreamer_status():
+    """Query systemd and local HTTP state of camera-ustreamer.service."""
+    svc_res = subprocess.run(
+        ["systemctl", "is-active", "camera-ustreamer.service"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    service_active = svc_res.returncode == 0 and svc_res.stdout.strip() == "active"
+
+    info = {
+        "configured": USTREAMER_ENABLED,
+        "service_active": service_active,
+        "host": USTREAMER_HOST,
+        "port": USTREAMER_PORT,
+        "desired_fps": USTREAMER_FPS,
+        "auth_enabled": bool(USTREAMER_USER),
+        "auth_user": USTREAMER_USER if USTREAMER_USER else None,
+        "stream_path": "/stream",
+        "snapshot_path": "/snapshot",
+        "online": False,
+    }
+
+    if service_active:
+        try:
+            req = _build_ustreamer_request("/state")
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+                result = payload.get("result", {})
+                source = result.get("source", {})
+                info["online"] = bool(source.get("online", True))
+                info["captured_fps"] = source.get("captured_fps")
+                info["resolution"] = source.get("resolution")
+        except Exception:
+            pass
+
+    return info
 
 
 def probe_usb_camera(vid=DEFAULT_USB_VID, pid=DEFAULT_USB_PID):
@@ -230,6 +292,26 @@ def set_camera_controls(video_dev=None, **controls):
     return True
 
 
+def _apply_rotation_and_save(raw_jpg, output_abs, rotate):
+    """Rotate raw_jpg if requested via jpegtran, then write to output_abs."""
+    if rotate in (90, 180, 270):
+        jpegtran_bin = shutil.which("jpegtran")
+        if jpegtran_bin:
+            rot_res = subprocess.run(
+                [jpegtran_bin, "-rotate", str(rotate), "-outfile", output_abs, raw_jpg],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            if rot_res.returncode == 0:
+                return
+            print(f"[WARN] jpegtran rotation failed ({rot_res.stderr.strip()}); copying unrotated frame.", file=sys.stderr)
+        else:
+            print("[WARN] 'jpegtran' not found; saving unrotated frame.", file=sys.stderr)
+    shutil.copy2(raw_jpg, output_abs)
+
+
 def capture_snapshot(
     output_file,
     width=DEFAULT_WIDTH,
@@ -246,9 +328,10 @@ def capture_snapshot(
     """
     Capture a 1280x720 MJPEG snapshot from the Huddly GO USB camera.
 
-    Streams `warmup_frames` (default 90 frames / ~3.0s at 30fps) before saving
-    the target frame so the Huddly GO's onboard VPU/ISP wakes from standby and
-    converges auto-exposure and white balance.
+    If `camera-ustreamer.service` is active, fetches the already-warmed frame
+    from `http://127.0.0.1:<port>/snapshot` in <20ms without device contention.
+    Otherwise, streams `warmup_frames` (default 90 frames / ~3.0s at 30fps) via
+    `v4l2-ctl` so the Huddly GO's onboard VPU/ISP wakes from standby.
     """
     resolved_dev = resolve_video_device(video_dev)
     if not os.path.exists(resolved_dev):
@@ -261,6 +344,7 @@ def capture_snapshot(
         width, height = closest
 
     # Apply any optional PTZ or exposure controls prior to capture
+    has_ctrl_change = any(x is not None for x in (zoom, pan, tilt, brightness, gain))
     set_camera_controls(
         resolved_dev,
         zoom_absolute=zoom,
@@ -269,18 +353,40 @@ def capture_snapshot(
         brightness=brightness,
         gain=gain,
     )
+    if has_ctrl_change:
+        time.sleep(0.25)
 
     output_abs = os.path.abspath(output_file)
     os.makedirs(os.path.dirname(output_abs), exist_ok=True)
     warmup_frames = max(1, int(warmup_frames))
 
-    print(
-        f"[*] Capturing {width}x{height} MJPG snapshot from {resolved_dev} "
-        f"(warmup={warmup_frames} frames, rotate={rotate}°) -> {output_abs}..."
-    )
-
+    ustreamer_info = get_ustreamer_status()
     with tempfile.TemporaryDirectory(prefix="huddly_capture_") as temp_dir:
         raw_jpg = os.path.join(temp_dir, "capture.jpg")
+
+        if ustreamer_info.get("service_active"):
+            print(
+                f"[*] Fetching {width}x{height} snapshot from active uStreamer "
+                f"(http://127.0.0.1:{USTREAMER_PORT}/snapshot, rotate={rotate}°) -> {output_abs}..."
+            )
+            try:
+                req = _build_ustreamer_request("/snapshot")
+                with urllib.request.urlopen(req, timeout=5.0) as resp:
+                    data = resp.read()
+                with open(raw_jpg, "wb") as f:
+                    f.write(data)
+                _apply_rotation_and_save(raw_jpg, output_abs, rotate)
+                if os.path.exists(output_abs) and os.path.getsize(output_abs) > 0:
+                    size_kb = os.path.getsize(output_abs) / 1024.0
+                    print(f"[SUCCESS] Snapshot captured via uStreamer: {output_abs} ({size_kb:.1f} KB)")
+                    return True
+            except Exception as e:
+                print(f"[WARN] uStreamer snapshot request failed ({e}); falling back to direct v4l2-ctl capture...", file=sys.stderr)
+
+        print(
+            f"[*] Capturing {width}x{height} MJPG snapshot from {resolved_dev} "
+            f"(warmup={warmup_frames} frames, rotate={rotate}°) -> {output_abs}..."
+        )
         cmd = [
             "v4l2-ctl",
             f"--device={resolved_dev}",
@@ -306,24 +412,7 @@ def capture_snapshot(
             print("[ERROR] No frame was written by v4l2-ctl.", file=sys.stderr)
             return False
 
-        if rotate in (90, 180, 270):
-            jpegtran_bin = shutil.which("jpegtran")
-            if jpegtran_bin:
-                rot_res = subprocess.run(
-                    [jpegtran_bin, "-rotate", str(rotate), "-outfile", output_abs, raw_jpg],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    check=False,
-                )
-                if rot_res.returncode != 0:
-                    print(f"[WARN] jpegtran rotation failed ({rot_res.stderr.strip()}); copying unrotated frame.", file=sys.stderr)
-                    shutil.copy2(raw_jpg, output_abs)
-            else:
-                print("[WARN] 'jpegtran' not found; saving unrotated frame.", file=sys.stderr)
-                shutil.copy2(raw_jpg, output_abs)
-        else:
-            shutil.copy2(raw_jpg, output_abs)
+        _apply_rotation_and_save(raw_jpg, output_abs, rotate)
 
         if os.path.exists(output_abs) and os.path.getsize(output_abs) > 0:
             size_kb = os.path.getsize(output_abs) / 1024.0
@@ -341,10 +430,12 @@ def cmd_status(args):
     """Handle the 'status' CLI subcommand."""
     usb_info = probe_usb_camera()
     v4l2_info = get_v4l2_status(getattr(args, "device", DEFAULT_VIDEO_DEV))
+    ustreamer_info = get_ustreamer_status()
 
     data = {
         "usb": usb_info,
         "v4l2": v4l2_info,
+        "ustreamer": ustreamer_info,
     }
 
     if getattr(args, "json", False):
@@ -376,6 +467,12 @@ def cmd_status(args):
             f"gain={ctrls.get('gain')} saturation={ctrls.get('saturation')} "
             f"sharpness={ctrls.get('sharpness')}"
         )
+    print("----------------------------------------------------------------------")
+    svc_state = "ACTIVE" if ustreamer_info.get("service_active") else "INACTIVE"
+    auth_desc = f"Basic Auth (user: {ustreamer_info.get('auth_user')})" if ustreamer_info.get("auth_enabled") else "None"
+    print(f" uStreamer Service:  {svc_state} (port {ustreamer_info.get('port')}, target {ustreamer_info.get('desired_fps')} fps)")
+    print(f" Stream Auth:        {auth_desc}")
+    print(f" Stream Endpoints:   http://<host>:{ustreamer_info.get('port')}/stream | /snapshot")
     print("======================================================================")
 
 
@@ -465,7 +562,7 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Available subcommands")
 
     # status command
-    sub_status = subparsers.add_parser("status", help="Query Huddly GO USB and V4L2 status")
+    sub_status = subparsers.add_parser("status", help="Query Huddly GO USB, V4L2, and uStreamer status")
     sub_status.add_argument("--device", default=DEFAULT_VIDEO_DEV, help=f"V4L2 device node (default: {DEFAULT_VIDEO_DEV})")
     sub_status.add_argument("--json", action="store_true", help="Output results in JSON format")
 
@@ -503,7 +600,7 @@ def main():
         "-w",
         type=int,
         default=DEFAULT_WARMUP,
-        help=f"Number of initial frames to skip for VPU/ISP wakeup & AEC convergence (default: {DEFAULT_WARMUP})",
+        help=f"Number of initial frames to skip when capturing directly via V4L2 (default: {DEFAULT_WARMUP})",
     )
     sub_capture.add_argument("--zoom", type=int, default=None, help="Digital zoom (1000..4000, default 1000)")
     sub_capture.add_argument("--pan", type=int, default=None, help="Digital pan (-216000..216000, default 0)")

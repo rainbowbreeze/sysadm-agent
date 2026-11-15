@@ -1,0 +1,28 @@
+---
+# Module: stream-ustreamer
+# Description: Configures uStreamer HTTP MJPEG & snapshot server for any V4L2 camera device with HTTP Basic Auth and on-demand CLI/Ansible enable/disable.
+# Supported OS Families: Debian
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml):
+#   - stream_ustreamer_port (optional, defaults to 8080; custom port addresses are stored in secrets.yml)
+#   - stream_ustreamer_user (optional, required when HTTP Basic Auth is enabled)
+#   - stream_ustreamer_password (optional, required when HTTP Basic Auth is enabled)
+
+stream_ustreamer_enabled: true
+stream_ustreamer_install_dir: "/opt/ustreamer"
+stream_ustreamer_cli_path: "/usr/local/bin/ustreamerctl"
+stream_ustreamer_group: "{{ ansible_user }}"
+stream_ustreamer_video_device: "/dev/video0"
+stream_ustreamer_format: "MJPEG"
+stream_ustreamer_width: 1280
+stream_ustreamer_height: 720
+stream_ustreamer_fps: 15
+stream_ustreamer_host: "0.0.0.0"
+stream_ustreamer_port: 8080
+stream_ustreamer_slowdown: true
+stream_ustreamer_user: ""
+stream_ustreamer_password: ""
+stream_ustreamer_extra_args: ""
+
+stream_ustreamer_packages:
+  - ustreamer
+  - v4l-utils

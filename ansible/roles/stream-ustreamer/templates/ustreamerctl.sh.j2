@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# File: {{ stream_ustreamer_install_dir }}/ustreamerctl.sh
+# Symlinked Location: {{ stream_ustreamer_cli_path }}
+# Description: Top-level CLI wrapper for managing the uStreamer HTTP MJPEG
+#              streaming daemon (`camera-ustreamer.service`) on demand.
+#
+# Supported Commands:
+#   ustreamerctl status [--json]   Query uStreamer systemd & HTTP endpoint state
+#   ustreamerctl start             Start camera-ustreamer.service
+#   ustreamerctl stop              Stop camera-ustreamer.service
+#   ustreamerctl restart           Restart camera-ustreamer.service
+#   ustreamerctl enable            Enable & start camera-ustreamer.service
+#   ustreamerctl disable           Stop & disable camera-ustreamer.service
+#   ustreamerctl snapshot [file]   Fetch a snapshot from active uStreamer
+# ==============================================================================
+set -euo pipefail
+
+PROJECT_DIR="{{ stream_ustreamer_install_dir }}"
+USTREAMER_ENV="${PROJECT_DIR}/ustreamer.env"
+PYTHON_SCRIPT="${PROJECT_DIR}/ustreamerctl.py"
+
+if [[ ! -f "${PYTHON_SCRIPT}" ]]; then
+    printf '[ERROR] Missing %s\n' "${PYTHON_SCRIPT}" >&2
+    exit 1
+fi
+
+if [[ -r "${USTREAMER_ENV}" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${USTREAMER_ENV}"
+    set +a
+fi
+
+exec python3 "${PYTHON_SCRIPT}" "$@"

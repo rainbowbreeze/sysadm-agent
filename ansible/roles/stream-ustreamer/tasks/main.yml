@@ -1,0 +1,96 @@
+---
+- name: Verify target OS is supported by stream-ustreamer
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["os_family"] in ["Debian"]
+    fail_msg: "Module stream-ustreamer only supports Debian/Ubuntu (found {{ ansible_facts['os_family'] }})."
+
+- name: Install ustreamer and V4L2 dependencies
+  ansible.builtin.package:
+    name: "{{ stream_ustreamer_packages }}"
+    state: present
+
+- name: Ensure streaming user belongs to video and plugdev groups
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups:
+      - video
+      - plugdev
+    append: true
+
+- name: Ensure uStreamer installation directory exists
+  ansible.builtin.file:
+    path: "{{ stream_ustreamer_install_dir }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ stream_ustreamer_group }}"
+    mode: "0775"
+
+- name: Deploy uStreamer configuration and credentials file
+  ansible.builtin.template:
+    src: ustreamer.env.j2
+    dest: "{{ stream_ustreamer_install_dir }}/ustreamer.env"
+    owner: "{{ ansible_user }}"
+    group: "{{ stream_ustreamer_group }}"
+    mode: "0600"
+  no_log: true
+  notify:
+    - Restart camera-ustreamer service
+
+- name: Deploy ustreamerctl Python management CLI
+  ansible.builtin.copy:
+    src: ustreamerctl.py
+    dest: "{{ stream_ustreamer_install_dir }}/ustreamerctl.py"
+    owner: "{{ ansible_user }}"
+    group: "{{ stream_ustreamer_group }}"
+    mode: "0755"
+
+- name: Deploy ustreamerctl CLI wrapper script
+  ansible.builtin.template:
+    src: ustreamerctl.sh.j2
+    dest: "{{ stream_ustreamer_install_dir }}/ustreamerctl.sh"
+    owner: "{{ ansible_user }}"
+    group: "{{ stream_ustreamer_group }}"
+    mode: "0755"
+
+- name: Symlink ustreamerctl CLI into /usr/local/bin/ustreamerctl
+  ansible.builtin.file:
+    src: "{{ stream_ustreamer_install_dir }}/ustreamerctl.sh"
+    dest: "{{ stream_ustreamer_cli_path }}"
+    state: link
+    force: true
+
+- name: Configure sudoers rule for passwordless camera-ustreamer service control
+  ansible.builtin.template:
+    src: sudoers-stream-ustreamer.j2
+    dest: /etc/sudoers.d/stream-ustreamer
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "/usr/sbin/visudo -cf %s"
+
+- name: Install camera-ustreamer systemd service
+  ansible.builtin.template:
+    src: camera-ustreamer.service.j2
+    dest: /etc/systemd/system/camera-ustreamer.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Restart camera-ustreamer service
+
+- name: Ensure camera-ustreamer systemd service is enabled and running when enabled
+  ansible.builtin.systemd:
+    name: camera-ustreamer.service
+    daemon_reload: true
+    state: started
+    enabled: true
+  when: stream_ustreamer_enabled | bool
+
+- name: Ensure camera-ustreamer systemd service is stopped and disabled when disabled
+  ansible.builtin.systemd:
+    name: camera-ustreamer.service
+    daemon_reload: true
+    state: stopped
+    enabled: false
+  when: not (stream_ustreamer_enabled | bool)
