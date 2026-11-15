@@ -1,0 +1,5 @@
+---
+machine_hostname: "camera06"
+baseline_timezone: "Europe/Rome"
+baseline_ssh_pub_key_file: "{{ playbook_dir }}/../../ssh_keys/sysadm-agent.pub"
+baseline_enable_node_exporter: true
