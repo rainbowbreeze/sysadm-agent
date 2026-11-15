@@ -11,7 +11,7 @@ stream_ustreamer_width: 1280
 stream_ustreamer_height: 720
 stream_ustreamer_fps: 30
 stream_ustreamer_slowdown: false
-stream_ustreamer_extra_args: "--persistent --buffers=4"
+stream_ustreamer_extra_args: "--persistent --buffers=4 --tcp-nodelay --server-timeout=30 --drop-same-frames=15"
 
 firewall_nftables_enabled: true
 firewall_nftables_allow_mdns: false

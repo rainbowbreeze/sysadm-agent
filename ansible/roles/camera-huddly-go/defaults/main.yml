@@ -18,7 +18,9 @@ camera_huddly_go_default_warmup: 90
 camera_huddly_go_default_zoom: 1000
 camera_huddly_go_default_pan: 0
 camera_huddly_go_default_tilt: 0
+camera_huddly_go_disable_wifi_powersave: true
 camera_huddly_go_packages:
+  - iw
   - libjpeg-turbo-progs
   - python3
   - python3-venv

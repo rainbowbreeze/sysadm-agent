@@ -71,3 +71,39 @@
     mode: "0644"
   notify:
     - Reload udev rules for camera-huddly-go
+
+- name: Configure NetworkManager drop-in to disable WiFi power save when NetworkManager is present
+  when: camera_huddly_go_disable_wifi_powersave | bool
+  block:
+    - name: Ensure /etc/NetworkManager/conf.d directory exists
+      ansible.builtin.file:
+        path: /etc/NetworkManager/conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Persist wifi.powersave = 2 (disabled) in /etc/NetworkManager/conf.d/99-camera-wifi-powersave.conf
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/99-camera-wifi-powersave.conf
+        content: |
+          [connection]
+          wifi.powersave = 2
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Check current WiFi power_save state on wlan0
+      ansible.builtin.command:
+        cmd: /usr/sbin/iw dev wlan0 get power_save
+      register: camera_huddly_go_wlan0_powersave
+      changed_when: false
+      failed_when: false
+
+    - name: Disable WiFi power_save on active wlan0 interface immediately
+      ansible.builtin.command:
+        cmd: /usr/sbin/iw dev wlan0 set power_save off
+      when:
+        - camera_huddly_go_wlan0_powersave.rc == 0
+        - "'Power save: on' in camera_huddly_go_wlan0_powersave.stdout"
+      changed_when: true

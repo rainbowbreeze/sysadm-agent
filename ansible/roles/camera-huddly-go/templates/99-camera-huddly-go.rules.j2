@@ -1,4 +1,8 @@
 # Udev rules for Huddly GO USB Camera (2bd9:0011) V4L2 and media devices
 SUBSYSTEM=="video4linux", ATTRS{idVendor}=="{{ camera_huddly_go_usb_vendor_id }}", ATTRS{idProduct}=="{{ camera_huddly_go_usb_product_id }}", GROUP="{{ camera_huddly_go_group }}", MODE="0660"
 SUBSYSTEM=="media", ATTRS{idVendor}=="{{ camera_huddly_go_usb_vendor_id }}", ATTRS{idProduct}=="{{ camera_huddly_go_usb_product_id }}", GROUP="{{ camera_huddly_go_group }}", MODE="0660"
-SUBSYSTEM=="usb", ATTRS{idVendor}=="{{ camera_huddly_go_usb_vendor_id }}", ATTRS{idProduct}=="{{ camera_huddly_go_usb_product_id }}", GROUP="{{ camera_huddly_go_group }}", MODE="0660"
+SUBSYSTEM=="usb", ATTR{idVendor}=="{{ camera_huddly_go_usb_vendor_id }}", ATTR{idProduct}=="{{ camera_huddly_go_usb_product_id }}", GROUP="{{ camera_huddly_go_group }}", MODE="0660", ATTR{power/control}="on"
+{% if camera_huddly_go_disable_wifi_powersave | bool %}
+# Disable WiFi power management on wlan* interfaces to prevent ~24 Mbps MJPEG stream stalls
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan*", RUN+="/usr/sbin/iw dev $name set power_save off"
+{% endif %}
