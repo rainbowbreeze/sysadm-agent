@@ -10,3 +10,5 @@
       tags: [baseline]
     - role: rainbowhat-raspberry
       tags: [rainbowhat-raspberry]
+    - role: firewall-nftables
+      tags: [firewall-nftables]

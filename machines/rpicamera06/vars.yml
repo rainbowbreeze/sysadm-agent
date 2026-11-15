@@ -12,3 +12,10 @@ stream_ustreamer_height: 720
 stream_ustreamer_fps: 30
 stream_ustreamer_slowdown: false
 stream_ustreamer_extra_args: "--persistent --buffers=4"
+
+firewall_nftables_enabled: true
+firewall_nftables_allow_mdns: false
+firewall_nftables_allowed_tcp_ports:
+  - "{{ machine_ssh_port }}"
+  - "{{ stream_ustreamer_port }}"
+  - "{{ node_exporter_port }}"

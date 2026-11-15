@@ -1,0 +1,14 @@
+---
+# Module: firewall-nftables
+# Description: Configures a stateful dual-stack (IPv4/IPv6 inet) nftables firewall that drops unsolicited inbound traffic while always allowing SSH (machine_ssh_port), loopback, ICMP/ICMPv6, and any configured TCP/UDP service ports.
+# Supported OS Families: Debian, Alpine
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml):
+#   - machine_ssh_port (optional, defaults to 21979; always allowed to prevent SSH lockout)
+#   - Any secret port variables referenced in firewall_nftables_allowed_tcp_ports or firewall_nftables_allowed_udp_ports
+
+firewall_nftables_enabled: true
+firewall_nftables_ssh_port: "{{ machine_ssh_port | default(21979, true) | int }}"
+firewall_nftables_allow_icmp: true
+firewall_nftables_allow_mdns: false
+firewall_nftables_allowed_tcp_ports: []
+firewall_nftables_allowed_udp_ports: []

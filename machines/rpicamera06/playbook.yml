@@ -12,3 +12,5 @@
       tags: [camera-huddly-go]
     - role: stream-ustreamer
       tags: [stream-ustreamer]
+    - role: firewall-nftables
+      tags: [firewall-nftables]

@@ -1,0 +1,6 @@
+---
+- name: Reload nftables ruleset
+  ansible.builtin.command:
+    cmd: "/usr/sbin/nft -f {{ firewall_nftables_conf_path }}"
+  changed_when: true
+  when: firewall_nftables_enabled | bool

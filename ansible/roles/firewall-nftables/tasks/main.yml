@@ -1,0 +1,61 @@
+---
+- name: Verify target OS is supported by firewall-nftables
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["os_family"] in ["Debian", "Alpine"]
+      - (firewall_nftables_ssh_port | int) > 0 and (firewall_nftables_ssh_port | int) <= 65535
+    fail_msg: >-
+      Module firewall-nftables requires Debian/Ubuntu or Alpine and a valid SSH port
+      (found OS={{ ansible_facts['os_family'] }}, ssh_port={{ firewall_nftables_ssh_port }}).
+
+- name: Load OS-specific variables for firewall-nftables
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+
+- name: Ensure nftables package is installed
+  ansible.builtin.package:
+    name: "{{ firewall_nftables_packages }}"
+    state: present
+
+- name: Verify target kernel supports nf_tables before applying firewall rules
+  ansible.builtin.command:
+    cmd: /usr/sbin/nft list tables
+  changed_when: false
+
+- name: Deploy validated nftables ruleset to {{ firewall_nftables_conf_path }}
+  ansible.builtin.template:
+    src: nftables.conf.j2
+    dest: "{{ firewall_nftables_conf_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+    validate: "/usr/sbin/nft -c -f %s"
+  notify: Reload nftables ruleset
+  when: firewall_nftables_enabled | bool
+
+- name: Ensure nftables service is enabled and running when firewall_nftables_enabled is true
+  ansible.builtin.service:
+    name: "{{ firewall_nftables_service_name }}"
+    state: started
+    enabled: true
+  when: firewall_nftables_enabled | bool
+
+- name: Flush active nftables ruleset and disable service when firewall_nftables_enabled is false
+  when: not (firewall_nftables_enabled | bool)
+  block:
+    - name: Stop and disable nftables service
+      ansible.builtin.service:
+        name: "{{ firewall_nftables_service_name }}"
+        state: stopped
+        enabled: false
+
+    - name: Check if active nftables ruleset is non-empty
+      ansible.builtin.command:
+        cmd: /usr/sbin/nft list tables
+      register: firewall_nftables_active_tables
+      changed_when: false
+
+    - name: Flush active nftables ruleset
+      ansible.builtin.command:
+        cmd: /usr/sbin/nft flush ruleset
+      when: (firewall_nftables_active_tables.stdout | trim) | length > 0
+      changed_when: true

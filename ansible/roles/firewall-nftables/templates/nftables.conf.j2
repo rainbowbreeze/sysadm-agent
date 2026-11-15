@@ -1,0 +1,59 @@
+#!/usr/sbin/nft -f
+
+flush ruleset
+
+table inet filter {
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        # Allow loopback traffic
+        iifname "lo" accept
+
+        # Allow established and related traffic
+        ct state established,related accept
+
+        # Drop invalid packets
+        ct state invalid drop
+{% if firewall_nftables_allow_icmp | bool %}
+
+        # Allow ICMP (IPv4) and ICMPv6 (IPv6 neighbor discovery & ping)
+        ip protocol icmp accept
+        ip6 nexthdr ipv6-icmp accept
+{% else %}
+
+        # Allow essential IPv6 neighbor discovery even when general ICMP ping is disabled
+        ip6 nexthdr ipv6-icmp icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert } accept
+{% endif %}
+
+        # Always allow SSH port (anti-lockout safeguard)
+        tcp dport {{ firewall_nftables_ssh_port | int }} accept
+{% set tcp_ports = firewall_nftables_allowed_tcp_ports | map('int') | reject('equalto', firewall_nftables_ssh_port | int) | unique | sort | list %}
+{% if tcp_ports | length == 1 %}
+
+        # Allowed inbound TCP service port
+        tcp dport {{ tcp_ports[0] }} accept
+{% elif tcp_ports | length > 1 %}
+
+        # Allowed inbound TCP service ports
+        tcp dport { {{ tcp_ports | join(', ') }} } accept
+{% endif %}
+{% set udp_ports = ((firewall_nftables_allowed_udp_ports | map('int') | list) + ([5353] if (firewall_nftables_allow_mdns | bool) else [])) | unique | sort | list %}
+{% if udp_ports | length == 1 %}
+
+        # Allowed inbound UDP service port
+        udp dport {{ udp_ports[0] }} accept
+{% elif udp_ports | length > 1 %}
+
+        # Allowed inbound UDP service ports
+        udp dport { {{ udp_ports | join(', ') }} } accept
+{% endif %}
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+    }
+
+    chain output {
+        type filter hook output priority filter; policy accept;
+    }
+}

@@ -1,0 +1,5 @@
+---
+firewall_nftables_packages:
+  - nftables
+firewall_nftables_service_name: "nftables"
+firewall_nftables_conf_path: "/etc/nftables.nft"
