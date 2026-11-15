@@ -14,7 +14,5 @@
       tags: [rainbowhat-imx7d]
     - role: camera-ov5645
       tags: [camera-ov5645]
-    - role: stream-ustreamer
-      tags: [stream-ustreamer]
     - role: wifi-home-conf
       tags: [wifi-home-conf]
