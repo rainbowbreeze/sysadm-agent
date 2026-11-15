@@ -12,6 +12,9 @@ wifi_home_conf_interface: "wlan0"
 wifi_home_conf_activate: true
 wifi_home_conf_profile1_priority: 10
 wifi_home_conf_profile2_priority: 5
+wifi_home_conf_source_routing: true
+wifi_home_conf_route_table: 200
+wifi_home_conf_rule_priority: 100
 
 wifi_profile1_ssid: ""
 wifi_profile1_password: ""

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Managed by Ansible (wifi-home-conf role)
+# Configures source-based policy routing on the WiFi interface so inbound
+# connections to the WiFi IP always reply via the WiFi gateway even when eth0 is connected.
+set -euo pipefail
+
+WIFI_IFACE="{{ wifi_home_conf_interface }}"
+ROUTE_TABLE="{{ wifi_home_conf_route_table }}"
+RULE_PRIO="{{ wifi_home_conf_rule_priority }}"
+
+IFACE="${1:-$WIFI_IFACE}"
+ACTION="${2:-up}"
+
+if [[ "$IFACE" != "$WIFI_IFACE" ]]; then
+  exit 0
+fi
+
+case "$ACTION" in
+  up|dhcp4-change|reapply)
+    WIFI_CIDR="$(ip -4 -o addr show dev "$WIFI_IFACE" scope global | awk '{print $4; exit}')"
+    WIFI_IP="${WIFI_CIDR%/*}"
+    WIFI_SUBNET="$(ip -4 route show dev "$WIFI_IFACE" proto kernel scope link | awk '{print $1; exit}')"
+    WIFI_GW="$(ip -4 route show default dev "$WIFI_IFACE" | awk '/ via / {for (i=1;i<=NF;i++) if ($i=="via") {print $(i+1); exit}}')"
+
+    if [[ -n "$WIFI_IP" && -n "$WIFI_GW" ]]; then
+      ip route flush table "$ROUTE_TABLE" 2>/dev/null || true
+      if [[ -n "$WIFI_SUBNET" ]]; then
+        ip route replace "$WIFI_SUBNET" dev "$WIFI_IFACE" scope link src "$WIFI_IP" table "$ROUTE_TABLE"
+      fi
+      ip route replace default via "$WIFI_GW" dev "$WIFI_IFACE" src "$WIFI_IP" table "$ROUTE_TABLE"
+
+      while ip rule del priority "$RULE_PRIO" 2>/dev/null; do :; done
+      ip rule add from "${WIFI_IP}/32" lookup "$ROUTE_TABLE" priority "$RULE_PRIO"
+    fi
+    ;;
+  down)
+    while ip rule del priority "$RULE_PRIO" 2>/dev/null; do :; done
+    ip route flush table "$ROUTE_TABLE" 2>/dev/null || true
+    ;;
+esac

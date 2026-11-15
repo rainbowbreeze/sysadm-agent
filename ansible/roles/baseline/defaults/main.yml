@@ -7,6 +7,9 @@
 baseline_timezone: "UTC"
 baseline_upgrade_packages: true
 baseline_clean_package_cache: true
+baseline_reboot_after_upgrade: true
+baseline_reboot_timeout: 120
+baseline_reboot_rescue_timeout: 180
 baseline_disable_gui: false
 
 # SSH daemon hardening settings

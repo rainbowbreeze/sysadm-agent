@@ -4,7 +4,7 @@
 The `baseline` module is the mandatory first role executed on every target machine (`Debian`/`Ubuntu` and `Alpine`). It configures:
 1. System hostname (`machine_hostname`), timezone (`baseline_timezone`), and optional headless mode (`baseline_disable_gui`, default `false`).
 2. Passwordless SSH public key authorization (`~{{ ansible_user }}/.ssh/authorized_keys` from `baseline_ssh_pub_key_file`).
-3. Optional APT GPG signing keys (`baseline_apt_gpg_keys`), package upgrades (`baseline_upgrade_packages`), and package cache cleanup (`baseline_clean_package_cache`).
+3. Optional APT GPG signing keys (`baseline_apt_gpg_keys`), package upgrades (`baseline_upgrade_packages`), package cache cleanup (`baseline_clean_package_cache`), and an automatic reboot when packages are upgraded (`baseline_reboot_after_upgrade`, default `true`) with a graceful 180s manual-power-cycle rescue (`baseline_reboot_rescue_timeout: 180`).
 4. Baseline observability utilities (`htop`, `iotop`, `curl`, `jq`, `lsof`, `sysstat`, `iproute2`) and optional Prometheus `node_exporter` (`baseline_enable_node_exporter`).
 5. **`sshd` hardening** via `/etc/ssh/sshd_config.d/00-sysadm-agent.conf` on port `21979` (`baseline_sshd_port`), with `PermitRootLogin` (`baseline_sshd_permit_root_login`, default `"no"`) and `PasswordAuthentication` (`baseline_sshd_password_authentication`, default `"no"`), followed by an automatic connection switch and runtime verification via `sshd -T`.
 

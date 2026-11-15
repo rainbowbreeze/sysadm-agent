@@ -103,6 +103,7 @@
     autoclean: "{{ baseline_clean_package_cache }}"
     autoremove: "{{ baseline_clean_package_cache }}"
     cache_valid_time: "{{ 0 if ((baseline_apt_gpg_keys_result is defined and baseline_apt_gpg_keys_result.changed) or (baseline_ubuntu_sources_result is defined and baseline_ubuntu_sources_result.changed)) else 3600 }}"
+  register: baseline_apt_upgrade_result
   when: ansible_facts["os_family"] == "Debian"
 
 - name: Clean apt package cache (Debian/Ubuntu)
@@ -116,7 +117,37 @@
   community.general.apk:
     update_cache: true
     upgrade: "{{ baseline_upgrade_packages | bool }}"
+  register: baseline_apk_upgrade_result
   when: ansible_facts["os_family"] == "Alpine"
+
+- name: Reboot machine after package dist-upgrade when packages were updated
+  when:
+    - baseline_upgrade_packages | bool
+    - baseline_reboot_after_upgrade | bool
+    - (baseline_apt_upgrade_result is defined and baseline_apt_upgrade_result.changed) or
+      (baseline_apk_upgrade_result is defined and baseline_apk_upgrade_result.changed)
+    - not ansible_check_mode
+  block:
+    - name: Attempt warm reboot after package upgrade
+      ansible.builtin.reboot:
+        msg: "Rebooting machine after baseline package dist-upgrade"
+        reboot_timeout: "{{ baseline_reboot_timeout }}"
+  rescue:
+    - name: Notify operator to manually reboot or power-cycle machine within {{ baseline_reboot_rescue_timeout }}s
+      ansible.builtin.debug:
+        msg: >-
+          [ACTION REQUIRED] Warm reboot timed out after {{ baseline_reboot_timeout }}s on {{ inventory_hostname }}.
+          Please power-cycle or manually reboot the machine now. Waiting up to
+          {{ baseline_reboot_rescue_timeout }}s for SSH reconnection to resume playbook...
+
+    - name: Reset SSH connection before waiting for manual reboot
+      ansible.builtin.meta: reset_connection
+
+    - name: Wait up to {{ baseline_reboot_rescue_timeout }}s for SSH reconnection after manual reboot
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        sleep: 5
+        timeout: "{{ baseline_reboot_rescue_timeout }}"
 
 - name: Install baseline machine observability packages
   ansible.builtin.package:
