@@ -143,12 +143,3 @@
     path: /sys/class/net/wlan0
   register: wifi_bcm4339_wlan0_stat
   failed_when: not wifi_bcm4339_wlan0_stat.stat.exists
-
-- name: Connect to configured WiFi network via NetworkManager when wifi_bcm4339_ssid is provided
-  ansible.builtin.command:
-    cmd: "nmcli dev wifi connect {{ wifi_bcm4339_ssid | quote }} password {{ wifi_bcm4339_password | quote }}"
-  when:
-    - wifi_bcm4339_ssid | length > 0
-  register: wifi_bcm4339_nmcli_connect
-  changed_when: "'successfully activated' in wifi_bcm4339_nmcli_connect.stdout"
-  no_log: true

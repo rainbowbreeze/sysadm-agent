@@ -1,0 +1,22 @@
+[connection]
+id={{ item.ssid }}-profile
+uuid={{ (item.ssid ~ '-profile') | to_uuid }}
+type=wifi
+interface-name={{ wifi_home_conf_interface }}
+autoconnect=true
+autoconnect-priority={{ item.priority }}
+
+[wifi]
+mode=infrastructure
+ssid={{ item.ssid }}
+
+[wifi-security]
+key-mgmt=wpa-psk
+psk={{ item.password }}
+
+[ipv4]
+method=auto
+
+[ipv6]
+addr-gen-mode=stable-privacy
+method=auto

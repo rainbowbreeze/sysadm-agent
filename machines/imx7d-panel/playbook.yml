@@ -16,3 +16,5 @@
       tags: [camera-ov5645]
     - role: stream-ustreamer
       tags: [stream-ustreamer]
+    - role: wifi-home-conf
+      tags: [wifi-home-conf]

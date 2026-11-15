@@ -1,0 +1,4 @@
+---
+wifi_home_conf_packages:
+  - network-manager
+wifi_home_conf_service_name: "NetworkManager"

@@ -14,5 +14,3 @@ wifi_bcm4339_uenv_display_autodetect: "off"
 wifi_bcm4339_enable_bluetooth_service: true
 wifi_bcm4339_preserve_camera_dtb: true
 wifi_bcm4339_reboot_on_boot_change: true
-wifi_bcm4339_ssid: ""
-wifi_bcm4339_password: ""

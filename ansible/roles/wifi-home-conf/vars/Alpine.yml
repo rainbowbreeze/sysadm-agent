@@ -1,0 +1,6 @@
+---
+wifi_home_conf_packages:
+  - networkmanager
+  - networkmanager-wifi
+  - networkmanager-cli
+wifi_home_conf_service_name: "networkmanager"

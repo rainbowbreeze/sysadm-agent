@@ -1,0 +1,19 @@
+---
+# Module: wifi-home-conf
+# Description: Creates and activates up to two persistent NetworkManager WiFi connection profiles (<ssid>-profile) from secret credentials.
+# Supported OS Families: Debian, Alpine
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml):
+#   - wifi_profile1_ssid (optional, at least one of profile1 or profile2 must be set)
+#   - wifi_profile1_password (required when wifi_profile1_ssid is set)
+#   - wifi_profile2_ssid (optional)
+#   - wifi_profile2_password (required when wifi_profile2_ssid is set)
+
+wifi_home_conf_interface: "wlan0"
+wifi_home_conf_activate: true
+wifi_home_conf_profile1_priority: 10
+wifi_home_conf_profile2_priority: 5
+
+wifi_profile1_ssid: ""
+wifi_profile1_password: ""
+wifi_profile2_ssid: ""
+wifi_profile2_password: ""
