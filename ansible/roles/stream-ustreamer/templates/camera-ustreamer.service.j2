@@ -1,6 +1,6 @@
 [Unit]
 Description=uStreamer HTTP MJPEG & Snapshot Server ({{ stream_ustreamer_video_device }})
-After=network-online.target
+After=network-online.target camera-init.service
 Wants=network-online.target
 
 [Service]

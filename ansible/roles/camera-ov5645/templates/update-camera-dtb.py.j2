@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""
+Idempotently updates the I2C-3 camera node in /mnt/imx7d-pico-pi.dtb on the
+U-Boot boot partition ({{ camera_ov5645_boot_partition }}) using an in-place
+Flattened Device Tree (FDT) binary update (no external dtc dependency):
+  - Node name:  ov5640_mipi@3c    -> ov5645_mipi@3c
+  - compatible: ovti,ov5640_mipi  -> ovti,ov5645_mipi
+  - pwn-gpios:  <&pca9554 2 0>    -> <&gpio1 4 0> (using gpio1 phandle from rst-gpios)
+"""
+
+import os
+import shutil
+import struct
+import subprocess
+import tempfile
+
+BOOT_PART = "{{ camera_ov5645_boot_partition }}"
+MOUNT_POINT = "{{ camera_ov5645_boot_mount_point }}"
+DTB_FILENAME = "imx7d-pico-pi.dtb"
+
+FDT_MAGIC = 0xD00DFEED
+FDT_BEGIN_NODE = 1
+FDT_END_NODE = 2
+FDT_PROP = 3
+FDT_NOP = 4
+FDT_END = 9
+
+CAMERA_I2C_PATHS = (
+    ["", "soc", "bus@30800000", "i2c@30a50000", "ov5640_mipi@3c"],
+    ["", "soc", "bus@30800000", "i2c@30a50000", "ov5645_mipi@3c"],
+)
+
+
+def patch_fdt_camera_node(raw_bytes):
+    """
+    Inspects a binary FDT (.dtb) and performs an in-place update of the
+    ov5640_mipi@3c node on i2c@30a50000 so ov5645_camera_mipi_int binds cleanly.
+    Returns (patched_bytes, was_modified).
+    """
+    if len(raw_bytes) < 40:
+        raise ValueError("File is too small to be a valid FDT blob")
+
+    (
+        magic,
+        totalsize,
+        off_dt_struct,
+        off_dt_strings,
+        _off_mem_rsvmap,
+        _version,
+        _last_comp_version,
+        _boot_cpuid_phys,
+        _size_dt_strings,
+        size_dt_struct,
+    ) = struct.unpack(">10I", raw_bytes[:40])
+
+    if magic != FDT_MAGIC or totalsize > len(raw_bytes):
+        raise ValueError(f"Invalid FDT header (magic=0x{magic:08x}, size={totalsize})")
+
+    data = bytearray(raw_bytes)
+
+    def get_prop_name(name_offset):
+        start = off_dt_strings + name_offset
+        end = data.index(b"\x00", start)
+        return bytes(data[start:end]).decode("ascii", errors="replace")
+
+    pos = off_dt_struct
+    end_struct = off_dt_struct + size_dt_struct
+    path = []
+    node_name_span = None
+    props = {}
+
+    while pos < end_struct:
+        token = struct.unpack(">I", data[pos : pos + 4])[0]
+        pos += 4
+        if token == FDT_BEGIN_NODE:
+            name_end = data.index(b"\x00", pos)
+            name = bytes(data[pos:name_end]).decode("ascii", errors="replace")
+            name_start = pos
+            pos = (name_end + 4) & ~3
+            path.append(name)
+            if path in CAMERA_I2C_PATHS:
+                node_name_span = (name_start, name_end - name_start)
+        elif token == FDT_END_NODE:
+            if path:
+                path.pop()
+        elif token == FDT_PROP:
+            plen, nameoff = struct.unpack(">II", data[pos : pos + 8])
+            pos += 8
+            val_start = pos
+            pos = (pos + plen + 3) & ~3
+            if path in CAMERA_I2C_PATHS:
+                pname = get_prop_name(nameoff)
+                props[pname] = (val_start, plen, bytes(data[val_start : val_start + plen]))
+        elif token == FDT_NOP:
+            continue
+        elif token == FDT_END:
+            break
+        else:
+            raise ValueError(f"Unexpected FDT token {token} at offset {pos - 4}")
+
+    if node_name_span is None:
+        return bytes(data), False
+
+    changed = False
+
+    # 1. Update node name ov5640_mipi@3c -> ov5645_mipi@3c (14 bytes -> 14 bytes)
+    name_start, name_len = node_name_span
+    target_name = b"ov5645_mipi@3c"
+    if name_len == len(target_name) and bytes(data[name_start : name_start + name_len]) != target_name:
+        data[name_start : name_start + name_len] = target_name
+        changed = True
+
+    # 2. Update compatible "ovti,ov5640_mipi\0" -> "ovti,ov5645_mipi\0" (17 bytes -> 17 bytes)
+    if "compatible" in props:
+        comp_start, comp_len, comp_val = props["compatible"]
+        target_comp = b"ovti,ov5645_mipi\x00"
+        if comp_len == len(target_comp) and comp_val == b"ovti,ov5640_mipi\x00":
+            data[comp_start : comp_start + comp_len] = target_comp
+            changed = True
+
+    # 3. Update pwn-gpios from <&pca9554 2 0> to <&gpio1 4 0> (12 bytes -> 12 bytes)
+    if "rst-gpios" in props and "pwn-gpios" in props:
+        _rst_start, rst_len, rst_val = props["rst-gpios"]
+        pwn_start, pwn_len, pwn_val = props["pwn-gpios"]
+        if rst_len == 12 and pwn_len == 12:
+            gpio1_phandle, _rst_pin, _rst_flags = struct.unpack(">III", rst_val)
+            target_pwn = struct.pack(">III", gpio1_phandle, 4, 0)
+            if pwn_val != target_pwn:
+                data[pwn_start : pwn_start + pwn_len] = target_pwn
+                changed = True
+
+    return bytes(data), changed
+
+
+def main():
+    os.makedirs(MOUNT_POINT, exist_ok=True)
+    already_mounted = os.path.ismount(MOUNT_POINT)
+    if not already_mounted:
+        subprocess.run(["mount", BOOT_PART, MOUNT_POINT], check=True)
+
+    changed = False
+    try:
+        dtb_path = os.path.join(MOUNT_POINT, DTB_FILENAME)
+        if os.path.isfile(dtb_path):
+            with open(dtb_path, "rb") as f:
+                raw_bytes = f.read()
+
+            patched_bytes, modified = patch_fdt_camera_node(raw_bytes)
+            if modified:
+                with tempfile.NamedTemporaryFile(
+                    prefix="imx7d_cam_dtb_",
+                    suffix=".dtb",
+                    dir=MOUNT_POINT,
+                    delete=False,
+                ) as tmp:
+                    tmp.write(patched_bytes)
+                    tmp.flush()
+                    os.fsync(tmp.fileno())
+                    tmp_path = tmp.name
+
+                shutil.move(tmp_path, dtb_path)
+                subprocess.run(["sync"], check=True)
+                changed = True
+    finally:
+        if not already_mounted:
+            subprocess.run(["umount", MOUNT_POINT], check=True)
+
+    print("UPDATED" if changed else "UNCHANGED")
+
+
+if __name__ == "__main__":
+    main()

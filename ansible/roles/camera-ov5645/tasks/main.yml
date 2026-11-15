@@ -90,9 +90,48 @@
     mode: "0644"
   notify: Restart camera-init service
 
+- name: Install boot DTB camera node updater script
+  ansible.builtin.template:
+    src: update-camera-dtb.py.j2
+    dest: /usr/local/sbin/camera-ov5645-update-dtb.py
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check if active device-tree already includes ov5645_mipi@3c on i2c-3
+  ansible.builtin.stat:
+    path: /proc/device-tree/soc/bus@30800000/i2c@30a50000/ov5645_mipi@3c
+  register: camera_ov5645_dt_node_stat
+
+- name: Ensure ov5645_mipi@3c node is configured in imx7d-pico-pi.dtb on boot partition ({{ camera_ov5645_boot_partition }})
+  ansible.builtin.command:
+    cmd: /usr/local/sbin/camera-ov5645-update-dtb.py
+  when:
+    - camera_ov5645_patch_boot_dtb | bool
+  register: camera_ov5645_dtb_updated
+  changed_when: "'UPDATED' in camera_ov5645_dtb_updated.stdout"
+
 - name: Ensure camera-init systemd service is enabled and started
   ansible.builtin.systemd:
     name: camera-init.service
     daemon_reload: true
+    state: started
+    enabled: true
+
+- name: Flush handlers before optional camera DTB reboot
+  ansible.builtin.meta: flush_handlers
+
+- name: Reboot board to activate ov5645_mipi@3c camera device-tree node
+  ansible.builtin.reboot:
+    msg: "Rebooting to activate ov5645_mipi@3c node in imx7d-pico-pi.dtb"
+    reboot_timeout: 300
+  when:
+    - camera_ov5645_patch_boot_dtb | bool
+    - camera_ov5645_reboot_on_dtb_change | bool
+    - (camera_ov5645_dtb_updated is defined and camera_ov5645_dtb_updated.changed) or not camera_ov5645_dt_node_stat.stat.exists
+
+- name: Ensure camera-init systemd service is active after boot
+  ansible.builtin.systemd:
+    name: camera-init.service
     state: started
     enabled: true

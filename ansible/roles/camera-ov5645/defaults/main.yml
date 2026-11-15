@@ -16,6 +16,10 @@ camera_ov5645_default_height: 1080
 camera_ov5645_default_rotate: 180
 camera_ov5645_default_warmup: 15
 camera_ov5645_default_quality: 95
+camera_ov5645_boot_partition: "/dev/mmcblk2p1"
+camera_ov5645_boot_mount_point: "/mnt"
+camera_ov5645_patch_boot_dtb: true
+camera_ov5645_reboot_on_dtb_change: true
 camera_ov5645_packages:
   - busybox
   - gstreamer1.0-plugins-base

@@ -22,7 +22,8 @@ This module configures a **TechNexion PICO-PI-IMX7D** (`NXP i.MX7D`) Debian/Ubun
 - **`/opt/camera/camera.py`**: Zero-dependency pure-Python library and CLI using Linux `i2c-dev` (`fcntl.ioctl`), `v4l2-ctl`, and GStreamer (`gst-launch-1.0`) with automatic AEC/AWB warm-up frame streaming and orientation correction.
 - **`/opt/camera/camera.sh` & `/usr/local/bin/camera`**: Wrapper script that activates `/opt/camera/venv`, exports default capture settings, and invokes `/opt/camera/camera.py`.
 - **`/etc/udev/rules.d/99-camera.rules`**: Grants `0660` group permissions (`{{ ansible_user }}`) on `/dev/video*`, `/dev/v4l-subdev*`, `/dev/media*`, and `/dev/i2c-3`.
-- **`/usr/local/sbin/camera-init.sh` & `camera-init.service`**: Boot-time systemd oneshot service that enables the 24MHz `CCM_CLKO1` master clock (`busybox devmem 0x3038bd80 32 0x10000000`), sets device permissions, frees `gpio4`/`gpio5` for kernel binding, and re-probes `ov5645_camera_mipi_int`.
+- **`/usr/local/sbin/camera-ov5645-update-dtb.py`**: Pure-Python Flattened Device Tree (FDT) binary updater (no `dtc` dependency) that ensures the `i2c@30a50000` camera node inside `/mnt/imx7d-pico-pi.dtb` on `/dev/mmcblk2p1` is set to `ov5645_mipi@3c` (`compatible = "ovti,ov5645_mipi"`, `pwn-gpios = <&gpio1 4 0>`) even after a Broadcom WiFi DTB update.
+- **`/usr/local/sbin/camera-init.sh` & `camera-init.service`**: Boot-time systemd oneshot service that enables the 24MHz `CCM_CLKO1` master clock (`busybox devmem 0x3038bd80 32 0x10000000`), frees `gpio4`/`gpio5` for kernel binding, binds `ov5645_camera_mipi_int` to I2C `3-003c` if not yet bound, and sets device permissions.
 
 ---
 
