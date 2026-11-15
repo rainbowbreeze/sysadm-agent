@@ -1,0 +1,20 @@
+---
+- name: Configure machine imx7d-camera06
+  hosts: imx7d-camera06
+  become: true
+  vars_files:
+    - vars.yml
+    - secrets.yml
+  roles:
+    - role: baseline
+      tags: [baseline]
+    - role: wifi-bcm4339
+      tags: [wifi-bcm4339]
+    - role: wifi-home-conf
+      tags: [wifi-home-conf]
+    - role: camera-huddly-go
+      tags: [camera-huddly-go]
+    - role: stream-ustreamer
+      tags: [stream-ustreamer]
+    - role: firewall-nftables
+      tags: [firewall-nftables]
