@@ -126,12 +126,31 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Reboot board to activate new Broadcom WiFi DTB and uEnv.txt
-  ansible.builtin.reboot:
-    msg: "Rebooting to load imx7d-pico-pi.dtb (wifi_module=brcm) for BCM4339 WiFi"
-    reboot_timeout: 300
   when:
     - wifi_bcm4339_reboot_on_boot_change | bool
     - (wifi_bcm4339_boot_updated is defined and wifi_bcm4339_boot_updated.changed) or not wifi_bcm4339_pwrseq_stat.stat.exists
+    - not ansible_check_mode
+  block:
+    - name: Attempt warm reboot to activate Broadcom WiFi DTB and uEnv.txt
+      ansible.builtin.reboot:
+        msg: "Rebooting to load imx7d-pico-pi.dtb (wifi_module=brcm) for BCM4339 WiFi"
+        reboot_timeout: "{{ wifi_bcm4339_reboot_timeout }}"
+  rescue:
+    - name: Notify operator to manually power-cycle board within {{ wifi_bcm4339_reboot_rescue_timeout }}s
+      ansible.builtin.debug:
+        msg: >-
+          [ACTION REQUIRED] Warm reboot timed out after {{ wifi_bcm4339_reboot_timeout }}s on {{ inventory_hostname }}.
+          Please power-cycle or manually reboot the board now. Waiting up to
+          {{ wifi_bcm4339_reboot_rescue_timeout }}s for SSH reconnection to resume playbook...
+
+    - name: Reset SSH connection before waiting for manual board reboot
+      ansible.builtin.meta: reset_connection
+
+    - name: Wait up to {{ wifi_bcm4339_reboot_rescue_timeout }}s for board SSH reconnection after manual reboot
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        sleep: 5
+        timeout: "{{ wifi_bcm4339_reboot_rescue_timeout }}"
 
 - name: Ensure brcmfmac kernel module is loaded
   ansible.builtin.command:

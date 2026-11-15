@@ -122,13 +122,32 @@
   ansible.builtin.meta: flush_handlers
 
 - name: Reboot board to activate ov5645_mipi@3c camera device-tree node
-  ansible.builtin.reboot:
-    msg: "Rebooting to activate ov5645_mipi@3c node in imx7d-pico-pi.dtb"
-    reboot_timeout: 300
   when:
     - camera_ov5645_patch_boot_dtb | bool
     - camera_ov5645_reboot_on_dtb_change | bool
     - (camera_ov5645_dtb_updated is defined and camera_ov5645_dtb_updated.changed) or not camera_ov5645_dt_node_stat.stat.exists
+    - not ansible_check_mode
+  block:
+    - name: Attempt warm reboot to activate ov5645_mipi@3c camera device-tree node
+      ansible.builtin.reboot:
+        msg: "Rebooting to activate ov5645_mipi@3c node in imx7d-pico-pi.dtb"
+        reboot_timeout: "{{ camera_ov5645_reboot_timeout }}"
+  rescue:
+    - name: Notify operator to manually power-cycle board within {{ camera_ov5645_reboot_rescue_timeout }}s
+      ansible.builtin.debug:
+        msg: >-
+          [ACTION REQUIRED] Warm reboot timed out after {{ camera_ov5645_reboot_timeout }}s on {{ inventory_hostname }}.
+          Please power-cycle or manually reboot the board now. Waiting up to
+          {{ camera_ov5645_reboot_rescue_timeout }}s for SSH reconnection to resume playbook...
+
+    - name: Reset SSH connection before waiting for manual board reboot
+      ansible.builtin.meta: reset_connection
+
+    - name: Wait up to {{ camera_ov5645_reboot_rescue_timeout }}s for board SSH reconnection after manual reboot
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        sleep: 5
+        timeout: "{{ camera_ov5645_reboot_rescue_timeout }}"
 
 - name: Ensure camera-init systemd service is active after boot
   ansible.builtin.systemd:
