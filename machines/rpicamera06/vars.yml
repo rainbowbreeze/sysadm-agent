@@ -9,4 +9,6 @@ stream_ustreamer_video_device: "/dev/video0"
 stream_ustreamer_format: "MJPEG"
 stream_ustreamer_width: 1280
 stream_ustreamer_height: 720
-stream_ustreamer_fps: 15
+stream_ustreamer_fps: 30
+stream_ustreamer_slowdown: false
+stream_ustreamer_extra_args: "--persistent --buffers=4"
