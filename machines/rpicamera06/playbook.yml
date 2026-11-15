@@ -8,3 +8,5 @@
   roles:
     - role: baseline
       tags: [baseline]
+    - role: camera-huddly-go
+      tags: [camera-huddly-go]

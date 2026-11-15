@@ -1,0 +1,9 @@
+# ==============================================================================
+# File: requirements.txt
+# Remote Path: /opt/camera/requirements.txt
+# Description: Python package requirements for the Huddly GO USB camera
+#              controller. All USB sysfs, V4L2 control, and MJPEG capture
+#              operations in camera.py use Python's built-in standard library
+#              modules (argparse, glob, json, os, shutil, subprocess, sys,
+#              tempfile, time) for zero-dependency execution on the host.
+# ==============================================================================

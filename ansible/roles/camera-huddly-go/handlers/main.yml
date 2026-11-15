@@ -1,0 +1,6 @@
+---
+- name: Reload udev rules for camera-huddly-go
+  ansible.builtin.shell: |
+    udevadm control --reload-rules || true
+    udevadm trigger || true
+  changed_when: true

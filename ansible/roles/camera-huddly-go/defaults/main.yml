@@ -1,0 +1,26 @@
+---
+# Module: camera-huddly-go
+# Description: Configures UVC V4L2 permissions, utilities, and deploys the Huddly GO USB camera driver and CLI (/usr/local/bin/camera) with VPU warmup and PTZ.
+# Supported OS Families: Debian
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
+
+camera_huddly_go_install_dir: "/opt/camera"
+camera_huddly_go_python_venv: "/opt/camera/venv"
+camera_huddly_go_cli_path: "/usr/local/bin/camera"
+camera_huddly_go_group: "{{ ansible_user }}"
+camera_huddly_go_usb_vendor_id: "2bd9"
+camera_huddly_go_usb_product_id: "0011"
+camera_huddly_go_video_device: "/dev/video0"
+camera_huddly_go_default_width: 1280
+camera_huddly_go_default_height: 720
+camera_huddly_go_default_rotate: 0
+camera_huddly_go_default_warmup: 90
+camera_huddly_go_default_zoom: 1000
+camera_huddly_go_default_pan: 0
+camera_huddly_go_default_tilt: 0
+camera_huddly_go_packages:
+  - libjpeg-turbo-progs
+  - python3
+  - python3-venv
+  - usbutils
+  - v4l-utils

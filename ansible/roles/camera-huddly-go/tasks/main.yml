@@ -1,0 +1,73 @@
+---
+- name: Verify target OS is supported by camera-huddly-go
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["os_family"] in ["Debian"]
+    fail_msg: "Module camera-huddly-go only supports Debian/Ubuntu (found {{ ansible_facts['os_family'] }})."
+
+- name: Install V4L2, USB, JPEG, and Python dependencies for Huddly GO USB camera
+  ansible.builtin.package:
+    name: "{{ camera_huddly_go_packages }}"
+    state: present
+
+- name: Ensure camera user belongs to video and plugdev groups
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups:
+      - video
+      - plugdev
+    append: true
+
+- name: Ensure camera installation directory exists
+  ansible.builtin.file:
+    path: "{{ camera_huddly_go_install_dir }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ camera_huddly_go_group }}"
+    mode: "0775"
+
+- name: Create isolated Python virtualenv for camera controller
+  ansible.builtin.command:
+    cmd: "python3 -m venv {{ camera_huddly_go_python_venv }}"
+    creates: "{{ camera_huddly_go_python_venv }}/bin/activate"
+
+- name: Deploy Huddly GO USB camera Python controller and CLI
+  ansible.builtin.copy:
+    src: camera.py
+    dest: "{{ camera_huddly_go_install_dir }}/camera.py"
+    owner: "{{ ansible_user }}"
+    group: "{{ camera_huddly_go_group }}"
+    mode: "0755"
+
+- name: Deploy camera requirements.txt
+  ansible.builtin.copy:
+    src: requirements.txt
+    dest: "{{ camera_huddly_go_install_dir }}/requirements.txt"
+    owner: "{{ ansible_user }}"
+    group: "{{ camera_huddly_go_group }}"
+    mode: "0644"
+
+- name: Deploy camera CLI wrapper script
+  ansible.builtin.template:
+    src: camera.sh.j2
+    dest: "{{ camera_huddly_go_install_dir }}/camera.sh"
+    owner: "{{ ansible_user }}"
+    group: "{{ camera_huddly_go_group }}"
+    mode: "0755"
+
+- name: Symlink camera CLI into /usr/local/bin/camera
+  ansible.builtin.file:
+    src: "{{ camera_huddly_go_install_dir }}/camera.sh"
+    dest: "{{ camera_huddly_go_cli_path }}"
+    state: link
+    force: true
+
+- name: Configure udev rules for Huddly GO USB camera V4L2 and media devices
+  ansible.builtin.template:
+    src: 99-camera-huddly-go.rules.j2
+    dest: /etc/udev/rules.d/99-camera-huddly-go.rules
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload udev rules for camera-huddly-go
