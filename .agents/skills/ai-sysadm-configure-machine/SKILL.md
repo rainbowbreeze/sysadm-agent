@@ -45,7 +45,7 @@ All host-specific private parameters and secrets for a machine live in a local g
 1. **Baseline Settings (`ansible/roles/baseline`)**:
    - `baseline` is mandatory and always runs first.
    - Read [ansible/roles/baseline/defaults/main.yml](file:///Users/alfredomorresi/Documents/develop/sysadm-agent/ansible/roles/baseline/defaults/main.yml).
-   - Ask the user for `baseline_timezone` (default recommendation: `Europe/Rome`) and whether they want to customize any default `baseline` settings (such as `baseline_enable_node_exporter` or `baseline_sshd_password_auth`). Otherwise, rely on `baseline/defaults/main.yml` without duplicating unchanged defaults in `vars.yml`.
+   - Ask the user for `baseline_timezone` (default recommendation: `Europe/Rome`) and whether they want to customize any default `baseline` settings (such as `baseline_enable_node_exporter` or `baseline_sshd_password_authentication`). Otherwise, rely on `baseline/defaults/main.yml` without duplicating unchanged defaults in `vars.yml`.
 2. **Composable Modules (`ansible/roles/`)**:
    - Dynamically list the existing directories under `ansible/roles/` (excluding `baseline`). Only allow selecting modules that already exist in `ansible/roles/`.
    - Ask the user which additional modules to enable on `<MACHINE_NAME>`.

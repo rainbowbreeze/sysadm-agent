@@ -22,7 +22,7 @@ This file is the **entry point for any AI agent** working in this repository. Re
      - `machines/<MACHINE_NAME>/logs/`: Stores raw timestamped Ansible logs (`ansible-<timestamp>.log`, `latest.log`) and the human-readable run log (`history.md`).
 
 3. **Seamless SSH Bootstrap (`Port 22` -> `Port 21979` & Native `ssh_askpass`)**:
-   - Fresh machines typically start with SSH on port `22`, while `baseline` moves `sshd` to port `21979` and disables password authentication after authorizing `ssh_keys/<key_name>.pub`.
+   - Fresh machines typically start with SSH on port `22`, while `baseline` deploys `/etc/ssh/sshd_config.d/00-sysadm-agent.conf` to move `sshd` to port `21979`, enforce passwordless-only public-key authentication (`PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `ChallengeResponseAuthentication no`, `PermitEmptyPasswords no`, `AuthenticationMethods publickey`), and verify effective runtime settings via `sshd -T` after authorizing `ssh_keys/<key_name>.pub`.
    - `scripts/run-machine.sh` reads `machine_ip` and `machine_ssh_port` from `machines/<MACHINE_NAME>/secrets.yml`. `ansible-core >= 2.21` handles initial SSH password authentication natively via its built-in `ssh_askpass` mechanism without requiring `sshpass` or `paramiko`. If `machine_ssh_port` (`21979`) is not open yet and port `22` is reachable, `scripts/run-machine.sh` transparently passes `-e machine_ssh_port=22` for the initial bootstrap run. Once `baseline` updates `sshd`, it flushes handlers and switches the active connection to port `21979` mid-playbook.
 
 ---

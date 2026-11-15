@@ -18,6 +18,34 @@
     force: true
   when: baseline_timezone is defined and baseline_timezone | length > 0
 
+- name: Check and disable GUI when baseline_disable_gui is enabled
+  block:
+    - name: Check current systemd default boot target
+      ansible.builtin.command: systemctl get-default
+      register: baseline_systemd_default_target
+      changed_when: false
+      failed_when: false
+
+    - name: Check if display-manager.service is currently active
+      ansible.builtin.command: systemctl is-active display-manager.service
+      register: baseline_display_manager_active
+      changed_when: false
+      failed_when: false
+
+    - name: Switch systemd default boot target to headless multi-user.target
+      ansible.builtin.command: systemctl set-default multi-user.target
+      when: baseline_systemd_default_target.stdout | trim != "multi-user.target"
+      changed_when: true
+
+    - name: Stop active display-manager.service immediately
+      ansible.builtin.systemd:
+        name: display-manager.service
+        state: stopped
+      when: baseline_display_manager_active.stdout | trim == "active"
+  when:
+    - baseline_disable_gui | bool
+    - ansible_facts["service_mgr"] == "systemd"
+
 - name: Verify SSH public key file is configured before hardening sshd
   ansible.builtin.assert:
     that:
@@ -108,22 +136,32 @@
         enabled: true
   when: baseline_enable_node_exporter | bool
 
-- name: Configure and harden SSH daemon (/etc/ssh/sshd_config)
+- name: Ensure /etc/ssh/sshd_config.d drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure /etc/ssh/sshd_config includes /etc/ssh/sshd_config.d/*.conf
   ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
-    regexp: "{{ item.regexp }}"
-    line: "{{ item.line }}"
+    regexp: '^\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf'
+    line: "Include /etc/ssh/sshd_config.d/*.conf"
+    insertbefore: BOF
     state: present
-    validate: "sshd -t -f %s"
-  loop:
-    - regexp: "^#?Port\\s+"
-      line: "Port {{ baseline_sshd_port }}"
-    - regexp: "^#?PermitRootLogin\\s+"
-      line: "PermitRootLogin {{ baseline_sshd_permit_root_login }}"
-    - regexp: "^#?PubkeyAuthentication\\s+"
-      line: "PubkeyAuthentication {{ 'yes' if baseline_sshd_pubkey_auth else 'no' }}"
-    - regexp: "^#?PasswordAuthentication\\s+"
-      line: "PasswordAuthentication {{ 'yes' if baseline_sshd_password_auth else 'no' }}"
+    validate: "/usr/sbin/sshd -t -f %s"
+  notify: Restart sshd
+
+- name: Deploy SSH hardening config (/etc/ssh/sshd_config.d/00-sysadm-agent.conf)
+  ansible.builtin.template:
+    src: 00-sysadm-agent.conf.j2
+    dest: /etc/ssh/sshd_config.d/00-sysadm-agent.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "/usr/sbin/sshd -t -f %s"
   notify: Restart sshd
 
 - name: Ensure SSH daemon is enabled and running
@@ -134,3 +172,23 @@
 
 - name: Flush SSH handlers so port/auth changes take effect before subsequent modules
   ansible.builtin.meta: flush_handlers
+
+- name: Inspect effective sshd runtime configuration (sshd -T)
+  ansible.builtin.command: /usr/sbin/sshd -T
+  register: baseline_sshd_effective_config
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify sshd runtime configuration matches baseline hardening settings
+  ansible.builtin.assert:
+    that:
+      - "'port ' ~ (baseline_sshd_port | string) in baseline_sshd_effective_config.stdout_lines"
+      - "'permitrootlogin ' ~ (baseline_sshd_permit_root_login | string | lower) in baseline_sshd_effective_config.stdout_lines"
+      - "'pubkeyauthentication yes' in baseline_sshd_effective_config.stdout_lines"
+      - "'passwordauthentication ' ~ (baseline_sshd_password_authentication | string | lower) in baseline_sshd_effective_config.stdout_lines"
+      - "'permitemptypasswords no' in baseline_sshd_effective_config.stdout_lines"
+      - "'kbdinteractiveauthentication no' in baseline_sshd_effective_config.stdout_lines"
+      - "(baseline_sshd_password_authentication | string | lower) != 'no' or ('authenticationmethods publickey' in baseline_sshd_effective_config.stdout_lines)"
+    fail_msg: >-
+      Effective sshd configuration (sshd -T) does not match expected baseline hardening settings.
+  when: not ansible_check_mode

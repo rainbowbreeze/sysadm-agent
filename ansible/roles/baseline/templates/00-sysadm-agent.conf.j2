@@ -1,0 +1,12 @@
+# Managed by Ansible (baseline role)
+# SSH daemon hardening configuration.
+Port {{ baseline_sshd_port }}
+PermitRootLogin {{ baseline_sshd_permit_root_login }}
+PubkeyAuthentication yes
+PasswordAuthentication {{ baseline_sshd_password_authentication }}
+PermitEmptyPasswords no
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no
+{% if (baseline_sshd_password_authentication | string | lower) == 'no' %}
+AuthenticationMethods publickey
+{% endif %}
