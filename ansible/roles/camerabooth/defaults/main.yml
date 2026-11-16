@@ -5,6 +5,10 @@
 # Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
 # Key Configurable Parameters (override in machines/<MACHINE_NAME>/vars.yml):
 #   - camerabooth_rotation: Optional image rotation override in degrees (0, 90, 180, or 270; default "" inherits /usr/local/bin/camera's configured rotation)
+#   - camerabooth_countdown_seconds: Visual countdown seconds before snapping photo (default: 3; set 0 for immediate capture)
+#   - camerabooth_preview_enabled: Stream live low-FPS camera preview in the booth window (default: true)
+#   - camerabooth_preview_fps: Live preview frame rate in FPS (default: 5)
+#   - camerabooth_review_seconds: Seconds to show captured photo before resuming live stream (default: 4)
 
 camerabooth_script_path: "/usr/local/bin/camera-booth"
 camerabooth_user_home: "{{ '/root' if ansible_user == 'root' else '/home/' ~ ansible_user }}"
@@ -12,12 +16,16 @@ camerabooth_user_symlink: "{{ camerabooth_user_home }}/camera_booth.py"
 camerabooth_output_dir: "{{ camerabooth_user_home }}/camera_booth"
 camerabooth_camera_cli: "/usr/local/bin/camera"
 camerabooth_rotation: ""
+camerabooth_countdown_seconds: 3
+camerabooth_preview_enabled: true
+camerabooth_preview_fps: 5
+camerabooth_review_seconds: 4
 camerabooth_window_title: "Camera Booth"
 camerabooth_window_width: 740
 camerabooth_window_height: 410
 camerabooth_preview_width: 560
-camerabooth_preview_height: 315
-camerabooth_button_height: 52
+camerabooth_preview_height: 305
+camerabooth_button_height: 50
 camerabooth_xdg_runtime_dir: "/run/user/0"
 camerabooth_wayland_display: "wayland-0"
 camerabooth_gdk_backend: "wayland"
@@ -27,6 +35,10 @@ camerabooth_configure_weston_launcher: true
 camerabooth_ensure_default_weston_launchers: true
 camerabooth_packages:
   - gir1.2-gdkpixbuf-2.0
+  - gir1.2-gstreamer-1.0
   - gir1.2-gtk-3.0
+  - gstreamer1.0-plugins-base
+  - gstreamer1.0-plugins-good
+  - python3-cairo
   - python3-gi
   - python3-gi-cairo
