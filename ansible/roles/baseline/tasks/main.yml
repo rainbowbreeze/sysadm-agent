@@ -114,10 +114,12 @@
     - baseline_clean_package_cache | bool
 
 - name: Update and upgrade apk packages (Alpine)
-  community.general.apk:
-    update_cache: true
-    upgrade: "{{ baseline_upgrade_packages | bool }}"
+  ansible.builtin.command:
+    cmd: "{{ 'apk update && apk upgrade' if (baseline_upgrade_packages | bool) else 'apk update' }}"
   register: baseline_apk_upgrade_result
+  changed_when: >-
+    'Upgrading ' in (baseline_apk_upgrade_result.stdout | default('')) or
+    'Installing ' in (baseline_apk_upgrade_result.stdout | default(''))
   when: ansible_facts["os_family"] == "Alpine"
 
 - name: Reboot machine after package dist-upgrade when packages were updated
