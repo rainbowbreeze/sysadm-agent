@@ -1,0 +1,6 @@
+---
+- name: Restart weston service
+  ansible.builtin.systemd:
+    name: weston
+    state: restarted
+  failed_when: false

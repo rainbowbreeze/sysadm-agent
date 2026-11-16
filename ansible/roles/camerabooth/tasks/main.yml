@@ -1,0 +1,149 @@
+---
+- name: Verify target OS is supported by camerabooth
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["os_family"] in ["Debian", "TechNexion i.MX Release Distro"]
+    fail_msg: >-
+      Module camerabooth only supports Debian/Ubuntu and TechNexion i.MX Release Distro
+      (found {{ ansible_facts['os_family'] }}).
+
+- name: Verify optional camerabooth_rotation override is valid when set
+  ansible.builtin.assert:
+    that:
+      - camerabooth_rotation == "" or (camerabooth_rotation | int) in [0, 90, 180, 270]
+    fail_msg: >-
+      camerabooth_rotation must be empty ("") or one of 0, 90, 180, or 270
+      (found {{ camerabooth_rotation }}).
+
+- name: Install Python GTK 3 and GdkPixbuf dependencies for Camera Booth (Debian)
+  ansible.builtin.package:
+    name: "{{ camerabooth_packages }}"
+    state: present
+  when: ansible_facts["os_family"] == "Debian"
+
+- name: Ensure Camera Booth binary, icon, and photo output directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ camerabooth_script_path | dirname }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ camerabooth_icon_path | dirname }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ camerabooth_output_dir }}"
+      owner: "{{ ansible_user }}"
+      group: "{{ ansible_user }}"
+      mode: "0755"
+
+- name: Deploy Camera Booth GTK 3 application script
+  ansible.builtin.template:
+    src: camera-booth.py.j2
+    dest: "{{ camerabooth_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create user symlink for Camera Booth script ({{ camerabooth_user_symlink }})
+  ansible.builtin.file:
+    src: "{{ camerabooth_script_path }}"
+    dest: "{{ camerabooth_user_symlink }}"
+    state: link
+    force: true
+
+- name: Generate 32x32 camera launcher icon ({{ camerabooth_icon_path }})
+  ansible.builtin.command:
+    cmd: |
+      python3 -c '
+      import math, os, struct, zlib
+      out = {{ camerabooth_icon_path | to_json }}
+      try:
+          import cairo
+          surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, 32, 32)
+          ctx = cairo.Context(surf)
+          ctx.set_source_rgba(0.18, 0.55, 0.95, 1.0)
+          ctx.rectangle(3, 9, 26, 18)
+          ctx.fill()
+          ctx.rectangle(10, 5, 12, 5)
+          ctx.fill()
+          ctx.set_source_rgba(1.0, 1.0, 1.0, 1.0)
+          ctx.arc(16, 18, 6.5, 0, 2 * math.pi)
+          ctx.fill()
+          ctx.set_source_rgba(0.12, 0.25, 0.45, 1.0)
+          ctx.arc(16, 18, 4.2, 0, 2 * math.pi)
+          ctx.fill()
+          ctx.set_source_rgba(1.0, 0.9, 0.2, 1.0)
+          ctx.arc(25, 12.5, 1.5, 0, 2 * math.pi)
+          ctx.fill()
+          surf.write_to_png(out)
+      except Exception:
+          W, H = 32, 32
+          px = bytearray(W * H * 4)
+          for y in range(H):
+              for x in range(W):
+                  idx = (y * W + x) * 4
+                  if (3 <= x < 29 and 9 <= y < 27) or (10 <= x < 22 and 5 <= y < 10):
+                      px[idx:idx+4] = bytes((46, 140, 242, 255))
+                  d = math.hypot(x - 16.0, y - 18.0)
+                  if d <= 6.5:
+                      px[idx:idx+4] = bytes((255, 255, 255, 255))
+                  if d <= 4.2:
+                      px[idx:idx+4] = bytes((31, 64, 115, 255))
+                  if math.hypot(x - 25.0, y - 12.5) <= 1.6:
+                      px[idx:idx+4] = bytes((255, 230, 51, 255))
+          def chunk(t, d):
+              return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+          raw = b"".join(b"\x00" + bytes(px[y*W*4:(y+1)*W*4]) for y in range(H))
+          ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 6, 0, 0, 0))
+          idat = chunk(b"IDAT", zlib.compress(raw, 9))
+          png = b"\x89PNG\r\n\x1a\n" + ihdr + idat + chunk(b"IEND", b"")
+          open(out, "wb").write(png)
+      os.chmod(out, 0o644)
+      '
+    creates: "{{ camerabooth_icon_path }}"
+
+- name: Check if Weston configuration file exists ({{ camerabooth_weston_ini_path }})
+  ansible.builtin.stat:
+    path: "{{ camerabooth_weston_ini_path }}"
+  register: camerabooth_weston_ini_stat
+
+- name: Configure Camera Booth launcher icon in Weston panel ({{ camerabooth_weston_ini_path }})
+  ansible.builtin.command:
+    cmd: |
+      python3 -c '
+      ini_path = {{ camerabooth_weston_ini_path | to_json }}
+      icon_path = {{ camerabooth_icon_path | to_json }}
+      script_path = {{ camerabooth_script_path | to_json }}
+      ensure_defaults = {{ "True" if (camerabooth_ensure_default_weston_launchers | bool) else "False" }}
+      orig = open(ini_path, "r", encoding="utf-8").read()
+      txt = orig
+      if ensure_defaults:
+          if "path=/usr/bin/weston-terminal" not in txt:
+              txt = txt.rstrip() + "\n\n[launcher]\nicon=/usr/share/weston/terminal.png\npath=/usr/bin/weston-terminal\n"
+          if "path=/usr/bin/weston-editor" not in txt:
+              txt = txt.rstrip() + "\n\n[launcher]\nicon=/usr/share/weston/icon_editor.png\npath=/usr/bin/weston-editor\n"
+      block = f"[launcher]\nicon={icon_path}\npath={script_path}\n"
+      if f"path={script_path}" not in txt:
+          editor_block = "[launcher]\nicon=/usr/share/weston/icon_editor.png\npath=/usr/bin/weston-editor\n"
+          if editor_block in txt:
+              txt = txt.replace(editor_block, editor_block + "\n" + block, 1)
+          else:
+              txt = txt.rstrip() + "\n\n" + block
+      if txt != orig:
+          open(ini_path, "w", encoding="utf-8").write(txt)
+          print("UPDATED")
+      else:
+          print("UNCHANGED")
+      '
+  when:
+    - camerabooth_configure_weston_launcher | bool
+    - camerabooth_weston_ini_stat.stat.exists
+  register: camerabooth_weston_launcher
+  changed_when: "'UPDATED' in camerabooth_weston_launcher.stdout"
+  notify: Restart weston service
