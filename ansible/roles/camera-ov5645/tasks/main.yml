@@ -2,33 +2,64 @@
 - name: Verify target OS is supported by camera-ov5645
   ansible.builtin.assert:
     that:
-      - ansible_facts["os_family"] in ["Debian"]
-    fail_msg: "Module camera-ov5645 only supports Debian/Ubuntu (found {{ ansible_facts['os_family'] }})."
+      - ansible_facts["os_family"] in ["Debian", "TechNexion i.MX Release Distro"]
+    fail_msg: >-
+      Module camera-ov5645 only supports Debian/Ubuntu and TechNexion i.MX Release Distro
+      (found {{ ansible_facts['os_family'] }}).
 
 - name: Install V4L2, GStreamer, I2C, and Python dependencies for OV5645 MIPI-CSI camera
   ansible.builtin.package:
     name: "{{ camera_ov5645_packages }}"
     state: present
+  when: ansible_facts["os_family"] == "Debian"
 
-- name: Ensure camera user belongs to video group
+- name: Ensure camera user belongs to video group (Debian)
   ansible.builtin.user:
     name: "{{ ansible_user }}"
     groups:
       - video
     append: true
+  when: ansible_facts["os_family"] == "Debian"
 
-- name: Ensure camera installation directory exists
+- name: Ensure camera user belongs to video group (TechNexion Yocto)
+  ansible.builtin.shell:
+    cmd: |
+      if id -nG {{ ansible_user | quote }} | tr ' ' '\n' | grep -qx "video"; then
+        echo "UNCHANGED"
+      else
+        usermod -aG video {{ ansible_user | quote }}
+        echo "ADDED"
+      fi
+  when: ansible_facts["os_family"] == "TechNexion i.MX Release Distro"
+  register: camera_ov5645_usermod
+  changed_when: "'ADDED' in camera_ov5645_usermod.stdout"
+
+- name: Ensure camera installation and local binary directories exist
   ansible.builtin.file:
-    path: "{{ camera_ov5645_install_dir }}"
+    path: "{{ item.path }}"
     state: directory
-    owner: "{{ ansible_user }}"
-    group: "{{ camera_ov5645_group }}"
-    mode: "0775"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ camera_ov5645_install_dir }}"
+      owner: "{{ ansible_user }}"
+      group: "{{ camera_ov5645_group }}"
+      mode: "0775"
+    - path: "{{ camera_ov5645_cli_path | dirname }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: /usr/local/sbin
+      owner: root
+      group: root
+      mode: "0755"
 
 - name: Create isolated Python virtualenv for camera controller
   ansible.builtin.command:
     cmd: "python3 -m venv {{ camera_ov5645_python_venv }}"
     creates: "{{ camera_ov5645_python_venv }}/bin/activate"
+  when: ansible_facts["os_family"] == "Debian"
 
 - name: Deploy OV5645 MIPI-CSI camera Python controller and CLI
   ansible.builtin.copy:

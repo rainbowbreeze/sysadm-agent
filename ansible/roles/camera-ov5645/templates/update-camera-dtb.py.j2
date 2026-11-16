@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """
-Idempotently updates the I2C-3 camera node in /mnt/imx7d-pico-pi.dtb on the
-U-Boot boot partition ({{ camera_ov5645_boot_partition }}) using an in-place
+Idempotently updates the I2C-3 camera node in imx7d-pico-pi.dtb on the
+U-Boot boot partition ({{ camera_ov5645_boot_partition }}) using a pure-Python
 Flattened Device Tree (FDT) binary update (no external dtc dependency):
-  - Node name:  ov5640_mipi@3c    -> ov5645_mipi@3c
-  - compatible: ovti,ov5640_mipi  -> ovti,ov5645_mipi
-  - pwn-gpios:  <&pca9554 2 0>    -> <&gpio1 4 0> (using gpio1 phandle from rst-gpios)
+  - Kernel 5.x (ov5645_camera_mipi_int):
+      - Node name:  ov5640_mipi@3c    -> ov5645_mipi@3c
+      - compatible: ovti,ov5640_mipi  -> ovti,ov5645_mipi
+      - pwn-gpios:  <&pca9554 2 0>    -> <&gpio1 4 0>
+  - Kernel 6.x (mainline ov5645):
+      - pfuze3000@8/regulators/vldo2: 1.50V regulator-boot-on + regulator-always-on
+      - Node name:  ov5640_mipi@3c    -> ov5645_mipi@3c
+      - compatible: ovti,ov5645
+      - clocks:     <&clks 340> (IMX7D_CLKO1_ROOT_DIV, 24 MHz on GPIO1_IO02)
+      - enable-gpios = <&gpio1 4 0>, reset-gpios = <&gpio1 5 1>
+      - port/endpoint: data-lanes = <1 2>
 """
 
 import os
@@ -17,6 +25,7 @@ import tempfile
 BOOT_PART = "{{ camera_ov5645_boot_partition }}"
 MOUNT_POINT = "{{ camera_ov5645_boot_mount_point }}"
 DTB_FILENAME = "imx7d-pico-pi.dtb"
+STAGED_BRCM_DTB = "/lib/firmware/brcm/imx7d-pico-pi-brcm.dtb"
 
 FDT_MAGIC = 0xD00DFEED
 FDT_BEGIN_NODE = 1
@@ -31,10 +40,9 @@ CAMERA_I2C_PATHS = (
 )
 
 
-def patch_fdt_camera_node(raw_bytes):
+def patch_fdt_camera_node_5x(raw_bytes):
     """
-    Inspects a binary FDT (.dtb) and performs an in-place update of the
-    ov5640_mipi@3c node on i2c@30a50000 so ov5645_camera_mipi_int binds cleanly.
+    In-place FDT update for Kernel 5.x (ov5645_camera_mipi_int).
     Returns (patched_bytes, was_modified).
     """
     if len(raw_bytes) < 40:
@@ -103,14 +111,12 @@ def patch_fdt_camera_node(raw_bytes):
 
     changed = False
 
-    # 1. Update node name ov5640_mipi@3c -> ov5645_mipi@3c (14 bytes -> 14 bytes)
     name_start, name_len = node_name_span
     target_name = b"ov5645_mipi@3c"
     if name_len == len(target_name) and bytes(data[name_start : name_start + name_len]) != target_name:
         data[name_start : name_start + name_len] = target_name
         changed = True
 
-    # 2. Update compatible "ovti,ov5640_mipi\0" -> "ovti,ov5645_mipi\0" (17 bytes -> 17 bytes)
     if "compatible" in props:
         comp_start, comp_len, comp_val = props["compatible"]
         target_comp = b"ovti,ov5645_mipi\x00"
@@ -118,7 +124,6 @@ def patch_fdt_camera_node(raw_bytes):
             data[comp_start : comp_start + comp_len] = target_comp
             changed = True
 
-    # 3. Update pwn-gpios from <&pca9554 2 0> to <&gpio1 4 0> (12 bytes -> 12 bytes)
     if "rst-gpios" in props and "pwn-gpios" in props:
         _rst_start, rst_len, rst_val = props["rst-gpios"]
         pwn_start, pwn_len, pwn_val = props["pwn-gpios"]
@@ -132,37 +137,334 @@ def patch_fdt_camera_node(raw_bytes):
     return bytes(data), changed
 
 
+def _parse_fdt_tree(raw_bytes):
+    (
+        magic,
+        totalsize,
+        off_dt_struct,
+        off_dt_strings,
+        off_mem_rsvmap,
+        version,
+        last_comp_version,
+        boot_cpuid_phys,
+        size_dt_strings,
+        size_dt_struct,
+    ) = struct.unpack(">10I", raw_bytes[:40])
+    if magic != FDT_MAGIC or totalsize > len(raw_bytes):
+        raise ValueError(f"Invalid FDT header (magic=0x{magic:08x}, size={totalsize})")
+
+    rsvmap_bytes = raw_bytes[off_mem_rsvmap:off_dt_struct]
+    strings_bytes = bytearray(raw_bytes[off_dt_strings : off_dt_strings + size_dt_strings])
+
+    def get_string(offset):
+        end = strings_bytes.index(b"\x00", offset)
+        return bytes(strings_bytes[offset:end]).decode("ascii")
+
+    def find_or_add_string(s):
+        b = s.encode("ascii") + b"\x00"
+        idx = 0
+        while idx < len(strings_bytes):
+            end = strings_bytes.index(b"\x00", idx) + 1
+            if bytes(strings_bytes[idx:end]) == b:
+                return idx
+            idx = end
+        new_off = len(strings_bytes)
+        strings_bytes.extend(b)
+        return new_off
+
+    pos = off_dt_struct
+    end_struct = off_dt_struct + size_dt_struct
+    stack = []
+    root = None
+
+    while pos < end_struct:
+        token = struct.unpack(">I", raw_bytes[pos : pos + 4])[0]
+        pos += 4
+        if token == FDT_BEGIN_NODE:
+            name_end = raw_bytes.index(b"\x00", pos)
+            name = raw_bytes[pos:name_end].decode("ascii")
+            pos = (name_end + 4) & ~3
+            node = [name, [], []]
+            if stack:
+                stack[-1][2].append(node)
+            else:
+                root = node
+            stack.append(node)
+        elif token == FDT_END_NODE:
+            stack.pop()
+        elif token == FDT_PROP:
+            plen, nameoff = struct.unpack(">II", raw_bytes[pos : pos + 8])
+            pos += 8
+            pval = raw_bytes[pos : pos + plen]
+            pos = (pos + plen + 3) & ~3
+            pname = get_string(nameoff)
+            stack[-1][1].append([pname, pval])
+        elif token == FDT_NOP:
+            continue
+        elif token == FDT_END:
+            break
+        else:
+            raise ValueError(f"Unexpected FDT token {token}")
+
+    return (
+        version,
+        last_comp_version,
+        boot_cpuid_phys,
+        off_mem_rsvmap,
+        rsvmap_bytes,
+        strings_bytes,
+        find_or_add_string,
+        root,
+    )
+
+
+def _find_node(root, path_parts):
+    curr = root
+    for part in path_parts:
+        found = None
+        for child in curr[2]:
+            if child[0] == part:
+                found = child
+                break
+        if found is None:
+            return None
+        curr = found
+    return curr
+
+
+def _get_prop(node, name):
+    for p in node[1]:
+        if p[0] == name:
+            return p[1]
+    return None
+
+
+def _set_prop(node, name, val):
+    for p in node[1]:
+        if p[0] == name:
+            p[1] = val
+            return
+    node[1].append([name, val])
+
+
+def _serialize_fdt_tree(
+    version,
+    last_comp_version,
+    boot_cpuid_phys,
+    off_mem_rsvmap,
+    rsvmap_bytes,
+    strings_bytes,
+    find_or_add_string,
+    root,
+):
+    struct_buf = bytearray()
+
+    def emit_node(node):
+        struct_buf.extend(struct.pack(">I", FDT_BEGIN_NODE))
+        name_b = node[0].encode("ascii") + b"\x00"
+        struct_buf.extend(name_b)
+        while len(struct_buf) % 4 != 0:
+            struct_buf.append(0)
+        for pname, pval in node[1]:
+            nameoff = find_or_add_string(pname)
+            struct_buf.extend(struct.pack(">III", FDT_PROP, len(pval), nameoff))
+            struct_buf.extend(pval)
+            while len(struct_buf) % 4 != 0:
+                struct_buf.append(0)
+        for child in node[2]:
+            emit_node(child)
+        struct_buf.extend(struct.pack(">I", FDT_END_NODE))
+
+    emit_node(root)
+    struct_buf.extend(struct.pack(">I", FDT_END))
+
+    off_dt_struct = off_mem_rsvmap + len(rsvmap_bytes)
+    size_dt_struct = len(struct_buf)
+    off_dt_strings = off_dt_struct + size_dt_struct
+    size_dt_strings = len(strings_bytes)
+    totalsize = off_dt_strings + size_dt_strings
+
+    header = struct.pack(
+        ">10I",
+        FDT_MAGIC,
+        totalsize,
+        off_dt_struct,
+        off_dt_strings,
+        off_mem_rsvmap,
+        version,
+        last_comp_version,
+        boot_cpuid_phys,
+        size_dt_strings,
+        size_dt_struct,
+    )
+    padding_before_rsv = b"\x00" * (off_mem_rsvmap - 40)
+    return header + padding_before_rsv + rsvmap_bytes + bytes(struct_buf) + bytes(strings_bytes)
+
+
+def patch_fdt_camera_node_6x(raw_bytes):
+    """
+    FDT update for Kernel 6.x (mainline ov5645 driver).
+    Returns (patched_bytes, was_modified).
+    """
+    (
+        version,
+        last_comp_version,
+        boot_cpuid_phys,
+        off_mem_rsvmap,
+        rsvmap_bytes,
+        strings_bytes,
+        find_or_add_string,
+        root,
+    ) = _parse_fdt_tree(raw_bytes)
+
+    vldo2 = _find_node(
+        root, ["soc", "bus@30800000", "i2c@30a50000", "pfuze3000@8", "regulators", "vldo2"]
+    )
+    i2c3 = _find_node(root, ["soc", "bus@30800000", "i2c@30a50000"])
+    if vldo2 is None or i2c3 is None:
+        return raw_bytes, False
+
+    cam_node = None
+    for child in i2c3[2]:
+        if child[0] in ("ov5640_mipi@3c", "ov5645_mipi@3c", "ov5645@3c"):
+            cam_node = child
+            break
+    if cam_node is None:
+        return raw_bytes, False
+
+    ep_node = _find_node(cam_node, ["port", "endpoint"])
+    if ep_node is None:
+        return raw_bytes, False
+
+    pinctrl_0 = _get_prop(cam_node, "pinctrl-0")
+    rst_gpios = _get_prop(cam_node, "rst-gpios") or _get_prop(cam_node, "reset-gpios")
+    gpio1_phandle = struct.unpack(">III", rst_gpios)[0]
+    dovdd_phandle = _get_prop(cam_node, "DOVDD-supply") or _get_prop(cam_node, "vdda-supply")
+    dvdd_phandle = _get_prop(cam_node, "DVDD-supply") or _get_prop(cam_node, "vdddo-supply")
+    clocks_prop = _get_prop(cam_node, "clocks")
+    ccm_phandle = struct.unpack(">II", clocks_prop)[0]
+
+    target_u15 = struct.pack(">I", 1500000)
+    target_clocks = struct.pack(">II", ccm_phandle, 340)
+    target_freq = struct.pack(">I", 24000000)
+    target_en_gpio = struct.pack(">III", gpio1_phandle, 4, 0)
+    target_rst_gpio = struct.pack(">III", gpio1_phandle, 5, 1)
+    target_lanes = struct.pack(">II", 1, 2)
+
+    already_patched = (
+        _get_prop(vldo2, "regulator-min-microvolt") == target_u15
+        and _get_prop(vldo2, "regulator-max-microvolt") == target_u15
+        and _get_prop(vldo2, "regulator-boot-on") == b""
+        and _get_prop(vldo2, "regulator-always-on") == b""
+        and cam_node[0] == "ov5645_mipi@3c"
+        and _get_prop(cam_node, "compatible") == b"ovti,ov5645\x00"
+        and _get_prop(cam_node, "clocks") == target_clocks
+        and _get_prop(cam_node, "clock-names") == b"xclk\x00"
+        and _get_prop(cam_node, "clock-frequency") == target_freq
+        and _get_prop(cam_node, "enable-gpios") == target_en_gpio
+        and _get_prop(cam_node, "reset-gpios") == target_rst_gpio
+        and _get_prop(ep_node, "data-lanes") == target_lanes
+    )
+    if already_patched:
+        return raw_bytes, False
+
+    _set_prop(vldo2, "regulator-min-microvolt", target_u15)
+    _set_prop(vldo2, "regulator-max-microvolt", target_u15)
+    _set_prop(vldo2, "regulator-boot-on", b"")
+    _set_prop(vldo2, "regulator-always-on", b"")
+
+    cam_node[0] = "ov5645_mipi@3c"
+    cam_node[1] = [
+        ["compatible", b"ovti,ov5645\x00"],
+        ["reg", struct.pack(">I", 0x3C)],
+        ["pinctrl-names", b"default\x00"],
+        ["pinctrl-0", pinctrl_0],
+        ["clocks", target_clocks],
+        ["clock-names", b"xclk\x00"],
+        ["clock-frequency", target_freq],
+        ["vdddo-supply", dvdd_phandle],
+        ["vdda-supply", dovdd_phandle],
+        ["vddd-supply", dovdd_phandle],
+        ["enable-gpios", target_en_gpio],
+        ["reset-gpios", target_rst_gpio],
+        ["csi_id", struct.pack(">I", 0)],
+        ["mclk", target_freq],
+        ["mclk_source", struct.pack(">I", 0)],
+    ]
+    _set_prop(ep_node, "data-lanes", target_lanes)
+
+    patched_bytes = _serialize_fdt_tree(
+        version,
+        last_comp_version,
+        boot_cpuid_phys,
+        off_mem_rsvmap,
+        rsvmap_bytes,
+        strings_bytes,
+        find_or_add_string,
+        root,
+    )
+    return patched_bytes, True
+
+
+def patch_fdt_camera_node(raw_bytes):
+    if os.uname().release.startswith("6."):
+        return patch_fdt_camera_node_6x(raw_bytes)
+    return patch_fdt_camera_node_5x(raw_bytes)
+
+
+def _patch_file_atomic(dtb_path):
+    if not os.path.isfile(dtb_path):
+        return False
+    with open(dtb_path, "rb") as f:
+        raw_bytes = f.read()
+    patched_bytes, modified = patch_fdt_camera_node(raw_bytes)
+    if not modified:
+        return False
+    parent_dir = os.path.dirname(dtb_path) or "."
+    with tempfile.NamedTemporaryFile(
+        prefix="imx7d_cam_dtb_",
+        suffix=".dtb",
+        dir=parent_dir,
+        delete=False,
+    ) as tmp:
+        tmp.write(patched_bytes)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp_path = tmp.name
+    shutil.move(tmp_path, dtb_path)
+    return True
+
+
 def main():
     os.makedirs(MOUNT_POINT, exist_ok=True)
-    already_mounted = os.path.ismount(MOUNT_POINT)
-    if not already_mounted:
+    mnt = MOUNT_POINT
+    mounted_by_us = False
+
+    res = subprocess.run(
+        ["findmnt", "-rn", "-o", "TARGET", "-S", BOOT_PART],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    existing_mnt = res.stdout.strip().splitlines()[0] if res.returncode == 0 and res.stdout.strip() else ""
+    if existing_mnt:
+        mnt = existing_mnt
+    elif not os.path.ismount(MOUNT_POINT):
         subprocess.run(["mount", BOOT_PART, MOUNT_POINT], check=True)
+        mounted_by_us = True
 
     changed = False
     try:
-        dtb_path = os.path.join(MOUNT_POINT, DTB_FILENAME)
-        if os.path.isfile(dtb_path):
-            with open(dtb_path, "rb") as f:
-                raw_bytes = f.read()
-
-            patched_bytes, modified = patch_fdt_camera_node(raw_bytes)
-            if modified:
-                with tempfile.NamedTemporaryFile(
-                    prefix="imx7d_cam_dtb_",
-                    suffix=".dtb",
-                    dir=MOUNT_POINT,
-                    delete=False,
-                ) as tmp:
-                    tmp.write(patched_bytes)
-                    tmp.flush()
-                    os.fsync(tmp.fileno())
-                    tmp_path = tmp.name
-
-                shutil.move(tmp_path, dtb_path)
-                subprocess.run(["sync"], check=True)
-                changed = True
+        dtb_path = os.path.join(mnt, DTB_FILENAME)
+        if _patch_file_atomic(dtb_path):
+            changed = True
+        if os.path.isfile(STAGED_BRCM_DTB):
+            _patch_file_atomic(STAGED_BRCM_DTB)
+        if changed:
+            subprocess.run(["sync"], check=True)
     finally:
-        if not already_mounted:
+        if mounted_by_us:
             subprocess.run(["umount", MOUNT_POINT], check=True)
 
     print("UPDATED" if changed else "UNCHANGED")

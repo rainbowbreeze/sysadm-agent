@@ -53,41 +53,65 @@ def check_clko1_status():
     """
     try:
         # Query CCM_TARGET_ROOT for CLKO1 using busybox devmem if available
-        res = subprocess.run(
-            ["busybox", "devmem", CCM_CLKO1_REG],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-        )
-        if res.returncode == 0 and res.stdout.strip():
-            val_hex = res.stdout.strip()
-            val_int = int(val_hex, 16)
-            is_enabled = bool(val_int & (1 << 28))
-            return {
-                "available": True,
-                "register": CCM_CLKO1_REG,
-                "value": val_hex,
-                "enabled": is_enabled,
-                "frequency_hz": 24000000 if is_enabled else 0,
-            }
-        else:
-            # Check if camera-init service is active as fallback for unprivileged users
-            svc_res = subprocess.run(
-                ["systemctl", "is-active", "camera-init.service"],
+        if shutil.which("busybox"):
+            res = subprocess.run(
+                ["busybox", "devmem", CCM_CLKO1_REG],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
                 check=False,
             )
-            if svc_res.returncode == 0 and svc_res.stdout.strip() == "active":
+            if res.returncode == 0 and res.stdout.strip():
+                val_hex = res.stdout.strip()
+                val_int = int(val_hex, 16)
+                is_enabled = bool(val_int & (1 << 28))
                 return {
                     "available": True,
                     "register": CCM_CLKO1_REG,
-                    "value": "0x10000000 (via camera-init.service)",
-                    "enabled": True,
-                    "frequency_hz": 24000000,
+                    "value": val_hex,
+                    "enabled": is_enabled,
+                    "frequency_hz": 24000000 if is_enabled else 0,
                 }
+
+        # Fallback to devmem2 (TechNexion Yocto 6.x)
+        if shutil.which("devmem2"):
+            res2 = subprocess.run(
+                ["devmem2", CCM_CLKO1_REG, "w"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            if res2.returncode == 0 and ":" in res2.stdout:
+                for line in res2.stdout.splitlines():
+                    if ("Read at address" in line or "Value at address" in line) and ":" in line:
+                        val_hex = line.rsplit(":", 1)[-1].strip()
+                        val_int = int(val_hex, 16)
+                        is_enabled = bool(val_int & (1 << 28))
+                        return {
+                            "available": True,
+                            "register": CCM_CLKO1_REG,
+                            "value": val_hex,
+                            "enabled": is_enabled,
+                            "frequency_hz": 24000000 if is_enabled else 0,
+                        }
+
+        # Check if camera-init service is active as fallback for unprivileged users
+        svc_res = subprocess.run(
+            ["systemctl", "is-active", "camera-init.service"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if svc_res.returncode == 0 and svc_res.stdout.strip() == "active":
+            return {
+                "available": True,
+                "register": CCM_CLKO1_REG,
+                "value": "0x10000000 (via camera-init.service)",
+                "enabled": True,
+                "frequency_hz": 24000000,
+            }
     except Exception as e:
         return {"available": False, "error": str(e)}
 
@@ -99,15 +123,26 @@ def enable_clko1():
     Ensure the 24MHz master clock output on GPIO1_IO02 is turned on.
     """
     try:
-        subprocess.run(
-            ["busybox", "devmem", CCM_CLKO1_REG, "32", "0x10000000"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        return True
+        if shutil.which("busybox"):
+            res = subprocess.run(
+                ["busybox", "devmem", CCM_CLKO1_REG, "32", "0x10000000"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            if res.returncode == 0:
+                return True
+        if shutil.which("devmem2"):
+            subprocess.run(
+                ["devmem2", CCM_CLKO1_REG, "w", "0x10000000"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+            return True
     except Exception:
         return False
+    return False
 
 
 def get_gpio_state(pin_num):
@@ -492,7 +527,7 @@ def cmd_detect(args):
 
     print("[3] Checking I2C-3 devices:")
     bus_num = DEFAULT_I2C_BUS.rsplit("-", 1)[-1] if "-" in DEFAULT_I2C_BUS else "3"
-    res = subprocess.run(["i2cdetect", "-y", "-r", bus_num], check=False)
+    res = subprocess.run(["i2cdetect", "-y", "-r", bus_num, "0x10", "0x77"], check=False)
     if res.returncode != 0:
         print("i2cdetect not available or failed.")
     print("")

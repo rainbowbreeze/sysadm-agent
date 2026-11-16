@@ -14,8 +14,11 @@
 set -euo pipefail
 
 # 1. Enable 24MHz master clock output (CLKO1 on GPIO1_IO02)
-if command -v busybox >/dev/null 2>&1; then
+if command -v busybox >/dev/null 2>&1 && busybox --list 2>/dev/null | grep -qx "devmem"; then
     busybox devmem 0x3038bd80 32 0x10000000 2>/dev/null || true
+    sleep 0.05
+elif command -v devmem2 >/dev/null 2>&1; then
+    devmem2 0x3038bd80 w 0x10000000 >/dev/null 2>&1 || true
     sleep 0.05
 fi
 
@@ -26,20 +29,27 @@ for pin in 4 5; do
     fi
 done
 
-# 3. Bind ov5645_camera_mipi_int to I2C 3-003c only if not already bound
+# 3. Bind OV5645 driver (ov5645 on 6.x or ov5645_camera_mipi_int on 5.x) to I2C 3-003c only if not already bound
 if [[ -d "/sys/bus/i2c/devices/3-003c" ]] && [[ ! -e "/sys/bus/i2c/devices/3-003c/driver" ]]; then
     if lsmod | grep -qw "ov5640_camera_mipi_v2"; then
         rmmod ov5640_camera_mipi_v2 2>/dev/null || true
     fi
-    if ! lsmod | grep -qw "ov5645_camera_mipi_int"; then
-        modprobe ov5645_camera_mipi_int 2>/dev/null || true
-    fi
-    if [[ ! -e "/sys/bus/i2c/devices/3-003c/driver" ]] && [[ -w "/sys/bus/i2c/drivers/ov5645_mipi/bind" ]]; then
-        echo "3-003c" > /sys/bus/i2c/drivers/ov5645_mipi/bind 2>/dev/null || true
-    fi
-    if [[ ! -e "/sys/bus/i2c/devices/3-003c/driver" ]] && lsmod | grep -qw "ov5645_camera_mipi_int"; then
-        rmmod ov5645_camera_mipi_int 2>/dev/null || true
-        modprobe ov5645_camera_mipi_int 2>/dev/null || true
+    if modinfo ov5645 >/dev/null 2>&1; then
+        modprobe ov5645 2>/dev/null || true
+        if [[ ! -e "/sys/bus/i2c/devices/3-003c/driver" ]] && [[ -w "/sys/bus/i2c/drivers/ov5645/bind" ]]; then
+            echo "3-003c" > /sys/bus/i2c/drivers/ov5645/bind 2>/dev/null || true
+        fi
+    elif modinfo ov5645_camera_mipi_int >/dev/null 2>&1; then
+        if ! lsmod | grep -qw "ov5645_camera_mipi_int"; then
+            modprobe ov5645_camera_mipi_int 2>/dev/null || true
+        fi
+        if [[ ! -e "/sys/bus/i2c/devices/3-003c/driver" ]] && [[ -w "/sys/bus/i2c/drivers/ov5645_mipi/bind" ]]; then
+            echo "3-003c" > /sys/bus/i2c/drivers/ov5645_mipi/bind 2>/dev/null || true
+        fi
+        if [[ ! -e "/sys/bus/i2c/devices/3-003c/driver" ]] && lsmod | grep -qw "ov5645_camera_mipi_int"; then
+            rmmod ov5645_camera_mipi_int 2>/dev/null || true
+            modprobe ov5645_camera_mipi_int 2>/dev/null || true
+        fi
     fi
 fi
 

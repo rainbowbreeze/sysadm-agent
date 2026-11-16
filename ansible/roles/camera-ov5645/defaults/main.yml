@@ -1,7 +1,7 @@
 ---
 # Module: camera-ov5645
-# Description: Configures MIPI-CSI V4L2/I2C device permissions, boot-time 24MHz master clock (CCM_CLKO1) initialization, GStreamer capture pipeline dependencies, and deploys the OmniVision OV5645/OV5640 camera driver and CLI (/usr/local/bin/camera) for TechNexion PICO-PI-IMX7D (NXP i.MX7D) hardware.
-# Supported OS Families: Debian
+# Description: Configures MIPI-CSI V4L2/I2C device permissions, boot-time 24MHz master clock (CCM_CLKO1) initialization, GStreamer capture pipeline dependencies, DTB camera/regulator patching (5.x & 6.x), and deploys the OmniVision OV5645/OV5640 camera driver and CLI (/usr/local/bin/camera) for TechNexion PICO-PI-IMX7D (NXP i.MX7D) hardware.
+# Supported OS Families: Debian, TechNexion i.MX Release Distro
 # Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
 
 camera_ov5645_install_dir: "/opt/camera"
