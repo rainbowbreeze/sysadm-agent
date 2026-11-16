@@ -100,25 +100,47 @@
     mode: "0644"
   register: wifi_bcm4339_uenv_staged
 
-- name: Install boot partition DTB/uEnv updater helper script
-  ansible.builtin.template:
-    src: update-boot-dtb.py.j2
-    dest: /usr/local/sbin/wifi-bcm4339-update-boot.py
-    owner: root
-    group: root
-    mode: "0755"
-  register: wifi_bcm4339_updater_script
-
 - name: Check if active device-tree already includes usdhc2_pwrseq (mmc-pwrseq-simple)
   ansible.builtin.stat:
     path: /proc/device-tree/usdhc2_pwrseq
   register: wifi_bcm4339_pwrseq_stat
 
+- name: Ensure boot mount point directory exists ({{ wifi_bcm4339_boot_mount_point }})
+  ansible.builtin.file:
+    path: "{{ wifi_bcm4339_boot_mount_point }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Update imx7d-pico-pi.dtb and uEnv.txt on U-Boot partition ({{ wifi_bcm4339_boot_partition }})
-  ansible.builtin.command:
-    cmd: /usr/local/sbin/wifi-bcm4339-update-boot.py
-  when:
-    - wifi_bcm4339_dtb_staged.changed or wifi_bcm4339_uenv_staged.changed or wifi_bcm4339_updater_script.changed or not wifi_bcm4339_pwrseq_stat.stat.exists
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      boot_part={{ wifi_bcm4339_boot_partition | quote }}
+      mnt={{ wifi_bcm4339_boot_mount_point | quote }}
+      mounted=0
+      if ! mountpoint -q "$mnt"; then
+        mount "$boot_part" "$mnt"
+        mounted=1
+      fi
+      trap 'if [ "$mounted" -eq 1 ]; then umount "$mnt"; fi' EXIT
+      changed=0
+      if [ ! -f "$mnt/imx7d-pico-pi.dtb" ] || ! cmp -s /lib/firmware/brcm/imx7d-pico-pi-brcm.dtb "$mnt/imx7d-pico-pi.dtb"; then
+        cp /lib/firmware/brcm/imx7d-pico-pi-brcm.dtb "$mnt/imx7d-pico-pi.dtb"
+        changed=1
+      fi
+      if [ ! -f "$mnt/uEnv.txt" ] || ! cmp -s /lib/firmware/brcm/uEnv.txt "$mnt/uEnv.txt"; then
+        cp /lib/firmware/brcm/uEnv.txt "$mnt/uEnv.txt"
+        changed=1
+      fi
+      if [ "$changed" -eq 1 ]; then
+        sync
+        echo "UPDATED"
+      else
+        echo "UNCHANGED"
+      fi
+    executable: /bin/bash
   register: wifi_bcm4339_boot_updated
   changed_when: "'UPDATED' in wifi_bcm4339_boot_updated.stdout"
 
@@ -136,7 +158,7 @@
         msg: "Rebooting to load imx7d-pico-pi.dtb (wifi_module=brcm) for BCM4339 WiFi"
         reboot_timeout: "{{ wifi_bcm4339_reboot_timeout }}"
   rescue:
-    - name: Notify operator to manually power-cycle board within {{ wifi_bcm4339_reboot_rescue_timeout }}s
+    - name: Notify operator to manually power-cycle board
       ansible.builtin.debug:
         msg: >-
           [ACTION REQUIRED] Warm reboot timed out after {{ wifi_bcm4339_reboot_timeout }}s on {{ inventory_hostname }}.
@@ -146,7 +168,7 @@
     - name: Reset SSH connection before waiting for manual board reboot
       ansible.builtin.meta: reset_connection
 
-    - name: Wait up to {{ wifi_bcm4339_reboot_rescue_timeout }}s for board SSH reconnection after manual reboot
+    - name: Wait for board SSH reconnection after manual reboot
       ansible.builtin.wait_for_connection:
         delay: 5
         sleep: 5
@@ -162,3 +184,10 @@
     path: /sys/class/net/wlan0
   register: wifi_bcm4339_wlan0_stat
   failed_when: not wifi_bcm4339_wlan0_stat.stat.exists
+
+- name: Ensure brcm-bluetooth.service is active after boot
+  ansible.builtin.systemd:
+    name: brcm-bluetooth.service
+    state: started
+    enabled: true
+  when: wifi_bcm4339_enable_bluetooth_service | bool

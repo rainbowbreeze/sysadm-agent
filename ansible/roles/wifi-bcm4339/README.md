@@ -1,6 +1,6 @@
 # `wifi-bcm4339` — Broadcom BCM4339 (AMPAK AP6335) WiFi & Bluetooth on TechNexion PICO-PI-IMX7D
 
-This module installs the prebuilt **Broadcom BCM4339 (AMPAK AP6335)** SDIO WiFi kernel modules (`brcmfmac.ko`, `brcmutil.ko`), WiFi/Bluetooth firmware, Bluetooth UART attach service (`brcm-bluetooth.service`), and custom Device Tree Blob (`imx7d-pico-pi-brcm.dtb` -> `/mnt/imx7d-pico-pi.dtb`) on **TechNexion PICO-PI-IMX7D** running kernel `5.15.71` (`Ubuntu 22.04`), based on [carlossg/TechNexion-PICO-PI-IMX7](https://github.com/carlossg/TechNexion-PICO-PI-IMX7).
+This module installs the prebuilt **Broadcom BCM4339 (AMPAK AP6335)** SDIO WiFi kernel modules (`brcmfmac.ko`, `brcmutil.ko`), WiFi/Bluetooth firmware, Bluetooth UART attach service (`brcm-bluetooth.service`), and custom Device Tree Blob (`imx7d-pico-pi-brcm.dtb` -> `/mnt/imx7d-pico-pi.dtb`) on **TechNexion PICO-PI-IMX7D** running kernel `5.15.71` (`Ubuntu 22.04`), following [carlossg/TechNexion-PICO-PI-IMX7](https://github.com/carlossg/TechNexion-PICO-PI-IMX7) (`Step 5 — Deploy to the board` through `Step 7 — Verify and connect`).
 
 ---
 
@@ -21,11 +21,11 @@ This module installs the prebuilt **Broadcom BCM4339 (AMPAK AP6335)** SDIO WiFi 
   - `brcmfmac/brcmfmac.ko`: Broadcom FullMAC SDIO wireless driver built for `5.15.71 SMP preempt mod_unload modversions ARMv7 p2v8`
   - `brcmutil/brcmutil.ko`: Broadcom 802.11 utility dependency module
 - **Firmware (`/lib/firmware/brcm/`)**:
-  - `brcmfmac4339-sdio.bin`: BCM4339 WiFi firmware binary (copied from `cyfmac4339-sdio.bin`)
+  - `brcmfmac4339-sdio.bin`: BCM4339 WiFi firmware binary (copied from `dist/cyfmac4339-sdio.bin`)
   - `brcmfmac4339-sdio.txt`: BCM4339 WiFi NVRAM calibration file for TechNexion PICO boards
   - `BCM4339A0.hcd` & `BCM4335C0.hcd`: BCM4339 Bluetooth UART patchram firmware
 - **Boot Partition (`/dev/mmcblk2p1` -> `/mnt`)**:
-  - `/mnt/imx7d-pico-pi.dtb`: Custom DTB with `mmc-pwrseq-simple` (`usdhc2_pwrseq`) and `bt_rfkill` (automatically preserves the `ov5645_mipi@3c` camera node if present in `/mnt/imx7d-pico-pi-qca.dtb`)
+  - `/mnt/imx7d-pico-pi.dtb`: Custom DTB (`dist/imx7d-pico-pi-brcm.dtb`) with `mmc-pwrseq-simple` (`usdhc2_pwrseq`) and `bt_rfkill`
   - `/mnt/uEnv.txt`: Configures `wifi_module=brcm` so U-Boot loads `imx7d-pico-pi.dtb`
 - **Systemd Service**:
   - `/etc/systemd/system/brcm-bluetooth.service`: Unblocks `bluetooth` rfkill and runs `hciattach /dev/ttymxc6 bcm43xx 3000000 flow` at boot.
@@ -49,4 +49,5 @@ sudo nmcli dev wifi connect "<SSID>" password "<PASSWORD>"
 # Confirm Bluetooth HCI interface (hci0) is UP RUNNING
 hciconfig -a
 systemctl status brcm-bluetooth.service
+sudo hcitool lescan
 ```
