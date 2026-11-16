@@ -1,10 +1,12 @@
 ---
 # Module: wifi-bcm4339
-# Description: Installs Broadcom BCM4339 (AP6335) SDIO WiFi kernel modules, WiFi/BT firmware, brcm-bluetooth.service, and DTB on PICO-PI-IMX7D (5.15.71).
-# Supported OS Families: Debian
+# Description: Installs Broadcom BCM4339 (AP6335) SDIO WiFi modules (5.x), WiFi/BT firmware, brcm-bluetooth.service, and DTB on PICO-PI-IMX7D (5.x & 6.x).
+# Supported OS Families: Debian, TechNexion i.MX Release Distro
 # Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
 
 wifi_bcm4339_kernel_version: "5.15.71"
+wifi_bcm4339_dtb_5x: "imx7d-pico-pi-brcm.dtb"
+wifi_bcm4339_dtb_6x: "imx7d-pico-pi-brcm-6.18.dtb"
 wifi_bcm4339_boot_partition: "/dev/mmcblk2p1"
 wifi_bcm4339_boot_mount_point: "/mnt"
 wifi_bcm4339_uenv_baseboard: "pi"

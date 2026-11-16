@@ -2,13 +2,19 @@
 - name: Verify target OS and kernel version are supported by wifi-bcm4339
   ansible.builtin.assert:
     that:
-      - ansible_facts["os_family"] in ["Debian"]
-      - ansible_facts["kernel"] == wifi_bcm4339_kernel_version
+      - ansible_facts["os_family"] in ["Debian", "TechNexion i.MX Release Distro"]
+      - ansible_facts["kernel"] == wifi_bcm4339_kernel_version or ansible_facts["kernel"] is match("^6\\.")
     fail_msg: >-
-      Module wifi-bcm4339 requires Debian/Ubuntu with kernel {{ wifi_bcm4339_kernel_version }}
+      Module wifi-bcm4339 requires Debian/Ubuntu or TechNexion i.MX Release Distro with kernel
+      {{ wifi_bcm4339_kernel_version }} or 6.x
       (found OS family={{ ansible_facts['os_family'] }}, kernel={{ ansible_facts['kernel'] }}).
 
-- name: Ensure Broadcom kernel module and firmware directories exist
+- name: Check if running kernel already provides built-in brcmfmac.ko
+  ansible.builtin.stat:
+    path: "/lib/modules/{{ ansible_facts['kernel'] }}/kernel/drivers/net/wireless/broadcom/brcm80211/brcmfmac/brcmfmac.ko"
+  register: wifi_bcm4339_native_brcmfmac
+
+- name: Ensure Broadcom kernel module directories exist (kernel {{ wifi_bcm4339_kernel_version }})
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
@@ -18,24 +24,34 @@
   loop:
     - "/lib/modules/{{ wifi_bcm4339_kernel_version }}/kernel/drivers/net/wireless/broadcom/brcm80211/brcmfmac"
     - "/lib/modules/{{ wifi_bcm4339_kernel_version }}/kernel/drivers/net/wireless/broadcom/brcm80211/brcmutil"
-    - "/lib/firmware/brcm"
+  when: not wifi_bcm4339_native_brcmfmac.stat.exists
 
-- name: Install prebuilt brcmfmac.ko kernel module
+- name: Ensure Broadcom firmware directory (/lib/firmware/brcm) exists
+  ansible.builtin.file:
+    path: /lib/firmware/brcm
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install prebuilt brcmfmac.ko kernel module (kernel {{ wifi_bcm4339_kernel_version }})
   ansible.builtin.copy:
     src: brcmfmac.ko
     dest: "/lib/modules/{{ wifi_bcm4339_kernel_version }}/kernel/drivers/net/wireless/broadcom/brcm80211/brcmfmac/brcmfmac.ko"
     owner: root
     group: root
     mode: "0644"
+  when: not wifi_bcm4339_native_brcmfmac.stat.exists
   notify: Run depmod for wifi-bcm4339
 
-- name: Install prebuilt brcmutil.ko kernel module
+- name: Install prebuilt brcmutil.ko kernel module (kernel {{ wifi_bcm4339_kernel_version }})
   ansible.builtin.copy:
     src: brcmutil.ko
     dest: "/lib/modules/{{ wifi_bcm4339_kernel_version }}/kernel/drivers/net/wireless/broadcom/brcm80211/brcmutil/brcmutil.ko"
     owner: root
     group: root
     mode: "0644"
+  when: not wifi_bcm4339_native_brcmfmac.stat.exists
   notify: Run depmod for wifi-bcm4339
 
 - name: Install BCM4339 SDIO WiFi firmware binary (brcmfmac4339-sdio.bin)
@@ -54,18 +70,32 @@
     group: root
     mode: "0644"
 
-- name: Install BCM4339 Bluetooth UART patchram firmware (BCM4339A0.hcd & BCM4335C0.hcd)
+- name: Install BCM4339 Bluetooth UART patchram firmware (BCM4335C0.hcd)
   ansible.builtin.copy:
-    src: "{{ item.src }}"
-    dest: "{{ item.dest }}"
+    src: BCM4335C0.hcd
+    dest: /lib/firmware/brcm/BCM4335C0.hcd
     owner: root
     group: root
     mode: "0644"
+  when: wifi_bcm4339_enable_bluetooth_service | bool
+
+- name: Check if conflicting serial-btattach@.service exists
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/serial-btattach@.service
+  register: wifi_bcm4339_serial_btattach_stat
+
+- name: Stop and mask conflicting serial-btattach@ttymxc6 units
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
   loop:
-    - src: BCM4339A0.hcd
-      dest: /lib/firmware/brcm/BCM4339A0.hcd
-    - src: BCM4335C0.hcd
-      dest: /lib/firmware/brcm/BCM4335C0.hcd
+    - serial-btattach@ttymxc6.timer
+    - serial-btattach@ttymxc6.service
+  when:
+    - wifi_bcm4339_enable_bluetooth_service | bool
+    - wifi_bcm4339_serial_btattach_stat.stat.exists
 
 - name: Install brcm-bluetooth.service systemd unit
   ansible.builtin.copy:
@@ -82,9 +112,9 @@
     daemon_reload: true
     enabled: "{{ wifi_bcm4339_enable_bluetooth_service | bool }}"
 
-- name: Stage prebuilt imx7d-pico-pi-brcm.dtb in /lib/firmware/brcm
+- name: Stage kernel-matched imx7d-pico-pi-brcm.dtb in /lib/firmware/brcm
   ansible.builtin.copy:
-    src: imx7d-pico-pi-brcm.dtb
+    src: "{{ wifi_bcm4339_dtb_6x if (ansible_facts['kernel'] is match('^6\\.')) else wifi_bcm4339_dtb_5x }}"
     dest: /lib/firmware/brcm/imx7d-pico-pi-brcm.dtb
     owner: root
     group: root
@@ -120,7 +150,10 @@
       boot_part={{ wifi_bcm4339_boot_partition | quote }}
       mnt={{ wifi_bcm4339_boot_mount_point | quote }}
       mounted=0
-      if ! mountpoint -q "$mnt"; then
+      existing_mnt=$(findmnt -rn -o TARGET -S "$boot_part" | head -n 1 || true)
+      if [ -n "$existing_mnt" ]; then
+        mnt="$existing_mnt"
+      elif ! mountpoint -q "$mnt"; then
         mount "$boot_part" "$mnt"
         mounted=1
       fi
