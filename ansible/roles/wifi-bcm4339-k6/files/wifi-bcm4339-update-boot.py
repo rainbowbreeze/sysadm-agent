@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Idempotently configures the U-Boot boot partition ({{ wifi_bcm4339_boot_partition }})
-for Broadcom BCM4339 (AP6335) SDIO WiFi & UART Bluetooth on TechNexion PICO-PI-IMX7D
-without overwriting the OS image's native boot environment or Device Tree Blob:
+Idempotently configures the U-Boot boot partition (e.g. /dev/mmcblk2p1) for
+Broadcom BCM4339 (AP6335) SDIO WiFi & UART Bluetooth on TechNexion PICO-PI-IMX7D
+running Linux Kernel 6.x without overwriting the OS image's native boot
+environment or Device Tree Blob:
 
 1. uEnv.txt (in-place key update, preserving native boot flow):
    - Saves a one-time backup `uEnv.txt.orig` if `uEnv.txt` exists.
-   - Updates `wifi_module={{ wifi_bcm4339_uenv_wifi_module }}` in-place (and updates any
-     hardcoded `fdt_file`/`fdtfile=imx7d-pico-pi-qca.dtb` to `imx7d-pico-pi.dtb`),
-     never clobbering `mmcroot`, `bootcmd_mmc`, `uenvcmd`, `dtoverlay`, or `boot.scr` behavior.
+   - Updates `wifi_module=<module>` in-place (and updates any hardcoded
+     `fdt_file`/`fdtfile=imx7d-pico-pi-qca.dtb` to `imx7d-pico-pi.dtb`),
+     never clobbering `mmcroot`, `bootcmd_mmc`, `uenvcmd`, `dtoverlay`, or `boot.scr`.
 
 2. imx7d-pico-pi.dtb (in-place pure-Python FDT binary patch, no external `dtc` needed):
    - Saves a one-time backup `imx7d-pico-pi.dtb.orig` if `imx7d-pico-pi.dtb` exists.
@@ -21,12 +22,13 @@ without overwriting the OS image's native boot environment or Device Tree Blob:
        * `/soc/bus@30800000/mmc@30b50000` (`usdhc2`) has `status = "okay"` and
          `mmc-pwrseq = <&usdhc2_pwrseq>`.
        * `/regulators/wlreg_on` and `/regulators/wifi_pwr_on` keep `regulator-always-on`.
-       * On Kernel 6.x only, upgrades `/bt_rfkill` from legacy `net,rfkill-gpio` to
-         mainline `rfkill-gpio` (`radio-type = "bluetooth"`).
-   - Falls back to staged `/lib/firmware/brcm/imx7d-pico-pi-brcm.dtb` only if
-     `imx7d-pico-pi.dtb` does not exist on the boot partition at all.
+       * Upgrades `/bt_rfkill` from legacy `net,rfkill-gpio` to mainline `rfkill-gpio`
+         (`radio-type = "bluetooth"`).
+   - Falls back to staged `--fallback-dtb` only if neither `imx7d-pico-pi.dtb` nor
+     `imx7d-pico-pi-qca.dtb` exists on the boot partition.
 """
 
+import argparse
 import os
 import re
 import shutil
@@ -34,12 +36,8 @@ import struct
 import subprocess
 import tempfile
 
-BOOT_PART = "{{ wifi_bcm4339_boot_partition }}"
-MOUNT_POINT = "{{ wifi_bcm4339_boot_mount_point }}"
 DTB_FILENAME = "imx7d-pico-pi.dtb"
 UENV_FILENAME = "uEnv.txt"
-TARGET_WIFI_MODULE = "{{ wifi_bcm4339_uenv_wifi_module }}"
-STAGED_FALLBACK_DTB = "/lib/firmware/brcm/imx7d-pico-pi-brcm.dtb"
 
 FDT_MAGIC = 0xD00DFEED
 FDT_BEGIN_NODE = 1
@@ -57,7 +55,7 @@ CLKO2_RATE_HZ = 0x8000
 def _write_atomic(dest_path, content_bytes):
     parent_dir = os.path.dirname(dest_path) or "."
     with tempfile.NamedTemporaryFile(
-        prefix=".wifi_bcm4339_",
+        prefix=".wifi_bcm4339_k6_",
         dir=parent_dir,
         delete=False,
     ) as tmp:
@@ -276,14 +274,11 @@ def _max_phandle(node):
     return best
 
 
-def patch_fdt_wifi_brcm(raw_bytes, is_kernel_6x=None):
+def patch_fdt_wifi_brcm(raw_bytes):
     """
-    Patches native imx7d-pico-pi.dtb in-place for Broadcom BCM4339 SDIO WiFi & BT.
-    Returns (patched_bytes, was_modified).
+    Patches native imx7d-pico-pi.dtb in-place for Broadcom BCM4339 SDIO WiFi & BT
+    on Linux Kernel 6.x. Returns (patched_bytes, was_modified).
     """
-    if is_kernel_6x is None:
-        is_kernel_6x = os.uname().release.startswith("6.")
-
     (
         version,
         last_comp_version,
@@ -386,15 +381,14 @@ def patch_fdt_wifi_brcm(raw_bytes, is_kernel_6x=None):
             _set_prop(reg_node, "regulator-always-on", b"")
             modified = True
 
-    # 5. On Kernel 6.x, migrate legacy net,rfkill-gpio -> mainline rfkill-gpio
-    if is_kernel_6x:
-        bt_rfkill = _find_node(root, ["bt_rfkill"])
-        if bt_rfkill is not None and _get_prop(bt_rfkill, "compatible") == b"net,rfkill-gpio\x00":
-            _set_prop(bt_rfkill, "compatible", b"rfkill-gpio\x00")
-            _set_prop(bt_rfkill, "label", b"bt_rfkill\x00")
-            _set_prop(bt_rfkill, "radio-type", b"bluetooth\x00")
-            _del_prop(bt_rfkill, "type")
-            modified = True
+    # 5. Migrate legacy net,rfkill-gpio -> mainline rfkill-gpio
+    bt_rfkill = _find_node(root, ["bt_rfkill"])
+    if bt_rfkill is not None and _get_prop(bt_rfkill, "compatible") == b"net,rfkill-gpio\x00":
+        _set_prop(bt_rfkill, "compatible", b"rfkill-gpio\x00")
+        _set_prop(bt_rfkill, "label", b"bt_rfkill\x00")
+        _set_prop(bt_rfkill, "radio-type", b"bluetooth\x00")
+        _del_prop(bt_rfkill, "type")
+        modified = True
 
     # 6. Update board model string if derived from stock QCA DTB
     cur_model = _get_prop(root, "model")
@@ -417,7 +411,7 @@ def patch_fdt_wifi_brcm(raw_bytes, is_kernel_6x=None):
     return patched_bytes, True
 
 
-def update_uenv_content(raw_text, wifi_module=TARGET_WIFI_MODULE):
+def update_uenv_content(raw_text, wifi_module="brcm"):
     """
     Updates `wifi_module=<wifi_module>` in-place inside `uEnv.txt` (and updates any
     explicit `fdt_file`/`fdtfile=imx7d-pico-pi-qca.dtb` to `imx7d-pico-pi.dtb`),
@@ -432,7 +426,7 @@ def update_uenv_content(raw_text, wifi_module=TARGET_WIFI_MODULE):
     new_lines = []
     found_wifi = False
 
-    wifi_re = re.compile(r"^(\s*wifi_module\s*=\s*)([^\r\n#]*)((?:#[^\r\n]*)?[\r\n]*)$")
+    wifi_re = re.compile(r"^(\s*wifi_module\s*=\s*)([^\s\r\n#]*)(\s*(?:#[^\r\n]*)?[\r\n]*)$")
     fdt_re = re.compile(r"^(\s*fdt_?file\s*=\s*)imx7d-pico-pi-qca\.dtb(\s*(?:#[^\r\n]*)?[\r\n]*)$")
 
     for line in lines:
@@ -456,13 +450,41 @@ def update_uenv_content(raw_text, wifi_module=TARGET_WIFI_MODULE):
     return updated, (updated != raw_text)
 
 
-def main():
-    os.makedirs(MOUNT_POINT, exist_ok=True)
-    mnt = MOUNT_POINT
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Idempotently update imx7d-pico-pi.dtb and uEnv.txt on U-Boot partition for Kernel 6.x."
+    )
+    parser.add_argument(
+        "--boot-partition",
+        default="/dev/mmcblk2p1",
+        help="U-Boot block partition device (default: /dev/mmcblk2p1)",
+    )
+    parser.add_argument(
+        "--mount-point",
+        default="/mnt",
+        help="Temporary mount directory when partition is not already mounted (default: /mnt)",
+    )
+    parser.add_argument(
+        "--wifi-module",
+        default="brcm",
+        help="Value for wifi_module in uEnv.txt (default: brcm)",
+    )
+    parser.add_argument(
+        "--fallback-dtb",
+        default="/lib/firmware/brcm/imx7d-pico-pi-brcm.dtb",
+        help="Fallback DTB path if neither imx7d-pico-pi.dtb nor imx7d-pico-pi-qca.dtb exists",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    os.makedirs(args.mount_point, exist_ok=True)
+    mnt = args.mount_point
     mounted_by_us = False
 
     res = subprocess.run(
-        ["findmnt", "-rn", "-o", "TARGET", "-S", BOOT_PART],
+        ["findmnt", "-rn", "-o", "TARGET", "-S", args.boot_partition],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -475,8 +497,8 @@ def main():
     )
     if existing_mnt:
         mnt = existing_mnt
-    elif not os.path.ismount(MOUNT_POINT):
-        subprocess.run(["mount", BOOT_PART, MOUNT_POINT], check=True)
+    elif not os.path.ismount(args.mount_point):
+        subprocess.run(["mount", args.boot_partition, args.mount_point], check=True)
         mounted_by_us = True
 
     changed = False
@@ -499,14 +521,14 @@ def main():
             patched_dtb, _ = patch_fdt_wifi_brcm(raw_qca_dtb)
             _write_atomic(dtb_path, patched_dtb)
             changed = True
-        elif os.path.isfile(STAGED_FALLBACK_DTB):
-            with open(STAGED_FALLBACK_DTB, "rb") as f:
+        elif os.path.isfile(args.fallback_dtb):
+            with open(args.fallback_dtb, "rb") as f:
                 fallback_bytes = f.read()
             _write_atomic(dtb_path, fallback_bytes)
             changed = True
         else:
             raise FileNotFoundError(
-                f"Neither {dtb_path} nor fallback {STAGED_FALLBACK_DTB} exists"
+                f"Neither {dtb_path} nor fallback {args.fallback_dtb} exists"
             )
 
         if os.path.isfile(uenv_path):
@@ -516,7 +538,7 @@ def main():
         else:
             raw_uenv = ""
 
-        updated_uenv, uenv_modified = update_uenv_content(raw_uenv)
+        updated_uenv, uenv_modified = update_uenv_content(raw_uenv, wifi_module=args.wifi_module)
         if uenv_modified:
             _write_atomic(uenv_path, updated_uenv.encode("utf-8", errors="surrogateescape"))
             changed = True
@@ -525,7 +547,7 @@ def main():
             subprocess.run(["sync"], check=True)
     finally:
         if mounted_by_us:
-            subprocess.run(["umount", MOUNT_POINT], check=True)
+            subprocess.run(["umount", args.mount_point], check=True)
 
     print("UPDATED" if changed else "UNCHANGED")
 

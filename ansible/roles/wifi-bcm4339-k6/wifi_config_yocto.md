@@ -1,6 +1,6 @@
 # Persistent Wi-Fi Configuration on TechNexion Yocto (`6.18-wrynose`)
 
-Reference notes for connecting a TechNexion PICO-PI-IMX7D board running **TechNexion i.MX Release Distro (`6.18-wrynose`, kernel `6.18.x`)** with the Broadcom **BCM4339 (`wlan0`)** controller to a WPA2-PSK Wi-Fi network and making the connection persistent across reboots.
+Reference notes for connecting a TechNexion PICO-PI-IMX7D board running **TechNexion i.MX Release Distro (`6.18-wrynose`, kernel `6.18.x`)** with the Broadcom **BCM4339 (`wlan0`)** controller (`wifi-bcm4339-k6` role) to a WPA2-PSK Wi-Fi network and making the connection persistent across reboots.
 
 ---
 
@@ -15,7 +15,7 @@ Create `/etc/modprobe.d/brcmfmac.conf` so `wpa_supplicant` handles the 4-way han
 options brcmfmac feature_disable=0x82000
 ```
 
-*(Note: This file is also deployed automatically by `ansible/roles/wifi-bcm4339/tasks/main.yml`.)*
+*(Note: This file is also deployed automatically by `ansible/roles/wifi-bcm4339-k6/tasks/main.yml`.)*
 
 ---
 
@@ -43,7 +43,7 @@ Create `/var/lib/connman/wifi.config` (permissions `0600`, owned by `root:root`)
 Name = WiFi Provisioning
 Description = Persistent WiFi connection profile
 
-[service_rainbow_iot]
+[service_primary_wifi]
 Type = wifi
 Name = <WIFI_SSID>
 Passphrase = <WIFI_PASSWORD>

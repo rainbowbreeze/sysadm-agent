@@ -1,0 +1,10 @@
+---
+# Module: wifi-bcm4339-k5
+# Description: Configures Broadcom BCM4339 (AP6335) SDIO WiFi & UART BT on PICO-PI-IMX7D (Kernel 5.x, runtime CCM_CLKO2 & GPIO reset).
+# Supported OS Families: Debian
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
+
+wifi_bcm4339_k5_kernel_version: "5.15.71"
+wifi_bcm4339_k5_feature_disable: "0x82000"
+wifi_bcm4339_k5_blacklist_bcmdhd: true
+wifi_bcm4339_k5_enable_bluetooth_service: true

@@ -18,9 +18,6 @@ CLKO2_ENABLE_CKIL = 0x17000000
 
 
 def main():
-    if os.uname().release.startswith("6."):
-        return
-
     fd = os.open("/dev/mem", os.O_RDWR | os.O_SYNC)
     try:
         mem = mmap.mmap(

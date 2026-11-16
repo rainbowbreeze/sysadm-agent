@@ -1,6 +1,6 @@
 # Persistent Wi-Fi & Dual-Homed Setup on TechNexion Ubuntu 22.04 (`5.15.71`)
 
-Reference and reproduction guide for bringing up the **Broadcom BCM4339 (AMPAK AP6335)** SDIO Wi-Fi controller (`wlan0`) and dual-homed **Ethernet + Wi-Fi** routing on **TechNexion PICO-PI-IMX7D** running **Ubuntu 22.04 LTS (Linux kernel `5.15.71`)**.
+Reference and reproduction guide for bringing up the **Broadcom BCM4339 (AMPAK AP6335)** SDIO Wi-Fi controller (`wlan0`), UART Bluetooth (`hci0`), and dual-homed **Ethernet + Wi-Fi** routing on **TechNexion PICO-PI-IMX7D** running **Ubuntu 22.04 LTS (Linux kernel `5.15.71`)** (`wifi-bcm4339-k5` role).
 
 ---
 
@@ -41,7 +41,7 @@ cat /sys/bus/sdio/devices/mmc1:0001:1/uevent
 
 ### Step 2: Install Out-of-Tree `brcmutil.ko` & `brcmfmac.ko` + Firmware
 
-Copy the `5.15.71` kernel modules and firmware files from `ansible/roles/wifi-bcm4339/files/`:
+Copy the `5.15.71` kernel modules and firmware files from `ansible/roles/wifi-bcm4339-k5/files/`:
 
 ```bash
 sudo mkdir -p /lib/modules/5.15.71/kernel/drivers/net/wireless/broadcom/brcm80211/{brcmfmac,brcmutil}
@@ -64,7 +64,7 @@ sudo depmod -a 5.15.71
 
 ### Step 3: Install `CCM_CLKO2` (`32.768 kHz`) Helper & `modprobe` Hook
 
-1. Install `ansible/roles/wifi-bcm4339/files/brcm-clko2-enable.py` to `/usr/local/sbin/brcm-clko2-enable.py` (`chmod 0755`), which maps `0x3038b000` via `/dev/mem` and sets `0x3038be00` (`CCM_TARGET_ROOT127`) to `0x07000000` (`MUX=7`, `ckil` while gated) then `0x17000000` (`ENABLE=1`), waiting `50ms` for clock stabilization.
+1. Install `ansible/roles/wifi-bcm4339-k5/files/brcm-clko2-enable.py` to `/usr/local/sbin/brcm-clko2-enable.py` (`chmod 0755`), which maps `0x3038b000` via `/dev/mem` and sets `0x3038be00` (`CCM_TARGET_ROOT127`) to `0x07000000` (`MUX=7`, `ckil` while gated) then `0x17000000` (`ENABLE=1`), waiting `50ms` for clock stabilization.
 2. Create `/etc/modprobe.d/brcmfmac.conf`:
    ```ini
    # Prevent legacy bcmdhd driver from conflicting on SDIO
@@ -112,7 +112,7 @@ When `eth0` and `wlan0` are connected to **different subnets/VLANs** at the same
 # 1. Validate secrets.yml and SSH keys
 python3 scripts/check-env.py <MACHINE_NAME>
 
-# 2. Provision all configured roles idempotently (auto-bootstraps SSH port if fresh OS)
+# 2. Provision all configured roles idempotently (using role wifi-bcm4339-k5 in playbook.yml)
 ./scripts/run-machine.sh <MACHINE_NAME>
 
 # 3. Verify SSH and HTTP streaming over both Ethernet and Wi-Fi IPs

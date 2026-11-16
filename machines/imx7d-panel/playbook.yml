@@ -8,8 +8,8 @@
   roles:
     - role: baseline
       tags: [baseline]
-    - role: wifi-bcm4339
-      tags: [wifi-bcm4339]
+    - role: wifi-bcm4339-k6
+      tags: [wifi-bcm4339-k6]
     - role: wifi-home-conf
       tags: [wifi-home-conf]
     - role: rainbowhat-imx7d

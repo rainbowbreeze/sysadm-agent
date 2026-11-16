@@ -1,0 +1,10 @@
+# Managed by Ansible (wifi-bcm4339-k6 role)
+{% if wifi_bcm4339_k6_blacklist_bcmdhd | bool %}
+# Prevent legacy out-of-tree bcmdhd driver from conflicting with brcmfmac on SDIO
+blacklist bcmdhd
+{% endif %}
+{% if wifi_bcm4339_k6_feature_disable | default('', true) | trim | length > 0 %}
+# Disable BRCMF_FEAT_FWSUP (0x2000) and BRCMF_FEAT_SAE (0x80000) so wpa_supplicant
+# handles WPA2-PSK / WPA3 handshakes in user space.
+options brcmfmac feature_disable={{ wifi_bcm4339_k6_feature_disable | trim }}
+{% endif %}

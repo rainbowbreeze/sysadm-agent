@@ -1,0 +1,16 @@
+---
+# Module: wifi-bcm4339-k6
+# Description: Configures Broadcom BCM4339 (AP6335) SDIO WiFi & UART BT on PICO-PI-IMX7D (Kernel 6.x, in-place DTB/uEnv patching).
+# Supported OS Families: Debian, TechNexion i.MX Release Distro
+# Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
+
+wifi_bcm4339_k6_dtb_fallback: "imx7d-pico-pi-brcm-6.18.dtb"
+wifi_bcm4339_k6_boot_partition: "/dev/mmcblk2p1"
+wifi_bcm4339_k6_boot_mount_point: "/mnt"
+wifi_bcm4339_k6_uenv_wifi_module: "brcm"
+wifi_bcm4339_k6_feature_disable: "0x82000"
+wifi_bcm4339_k6_blacklist_bcmdhd: true
+wifi_bcm4339_k6_enable_bluetooth_service: true
+wifi_bcm4339_k6_reboot_on_boot_change: true
+wifi_bcm4339_k6_reboot_timeout: 120
+wifi_bcm4339_k6_reboot_rescue_timeout: 180

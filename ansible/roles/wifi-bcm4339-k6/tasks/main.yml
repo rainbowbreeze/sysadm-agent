@@ -1,0 +1,204 @@
+---
+- name: Verify target OS and kernel version are supported by wifi-bcm4339-k6
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["os_family"] in ["Debian", "TechNexion i.MX Release Distro"]
+      - ansible_facts["kernel"] is match("^6\\.")
+    fail_msg: >-
+      Module wifi-bcm4339-k6 requires Debian/Ubuntu or TechNexion i.MX Release Distro with
+      Linux Kernel 6.x (found OS family={{ ansible_facts['os_family'] }},
+      kernel={{ ansible_facts['kernel'] }}). For Linux Kernel 5.x boards, use wifi-bcm4339-k5 instead.
+
+- name: Ensure Broadcom firmware, local sbin, and boot mount directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /lib/firmware/brcm
+    - /usr/local/sbin
+    - "{{ wifi_bcm4339_k6_boot_mount_point }}"
+
+- name: Install BCM4339 SDIO WiFi firmware binary (brcmfmac4339-sdio.bin)
+  ansible.builtin.copy:
+    src: cyfmac4339-sdio.bin
+    dest: /lib/firmware/brcm/brcmfmac4339-sdio.bin
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install BCM4339 SDIO WiFi NVRAM calibration file (brcmfmac4339-sdio.txt)
+  ansible.builtin.copy:
+    src: brcmfmac4339-sdio.txt
+    dest: /lib/firmware/brcm/brcmfmac4339-sdio.txt
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure brcmfmac modprobe options and bcmdhd blacklist
+  ansible.builtin.template:
+    src: brcmfmac.conf.j2
+    dest: /etc/modprobe.d/brcmfmac.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install BCM4339 Bluetooth UART patchram firmware (BCM4335C0.hcd)
+  ansible.builtin.copy:
+    src: BCM4335C0.hcd
+    dest: /lib/firmware/brcm/BCM4335C0.hcd
+    owner: root
+    group: root
+    mode: "0644"
+  when: wifi_bcm4339_k6_enable_bluetooth_service | bool
+
+- name: Check if conflicting serial-btattach@.service exists
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/serial-btattach@.service
+  register: wifi_bcm4339_k6_serial_btattach_stat
+
+- name: Stop and mask conflicting serial-btattach@ttymxc6 units
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop:
+    - serial-btattach@ttymxc6.timer
+    - serial-btattach@ttymxc6.service
+  when:
+    - wifi_bcm4339_k6_enable_bluetooth_service | bool
+    - wifi_bcm4339_k6_serial_btattach_stat.stat.exists
+
+- name: Install brcm-bluetooth.service systemd unit
+  ansible.builtin.copy:
+    src: brcm-bluetooth.service
+    dest: /etc/systemd/system/brcm-bluetooth.service
+    owner: root
+    group: root
+    mode: "0644"
+  register: wifi_bcm4339_k6_bt_unit
+  notify: Reload systemd for wifi-bcm4339-k6
+
+- name: Stage fallback 6.x imx7d-pico-pi-brcm.dtb in /lib/firmware/brcm
+  ansible.builtin.copy:
+    src: "{{ wifi_bcm4339_k6_dtb_fallback }}"
+    dest: /lib/firmware/brcm/imx7d-pico-pi-brcm.dtb
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install in-place boot partition DTB and uEnv CLI updater script
+  ansible.builtin.copy:
+    src: wifi-bcm4339-update-boot.py
+    dest: /usr/local/sbin/wifi-bcm4339-update-boot.py
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check if active device-tree already includes usdhc2_pwrseq
+  ansible.builtin.stat:
+    path: /proc/device-tree/usdhc2_pwrseq
+  register: wifi_bcm4339_k6_pwrseq_stat
+
+- name: Update imx7d-pico-pi.dtb and uEnv.txt in-place on U-Boot partition
+  ansible.builtin.command:
+    argv:
+      - /usr/local/sbin/wifi-bcm4339-update-boot.py
+      - --boot-partition
+      - "{{ wifi_bcm4339_k6_boot_partition }}"
+      - --mount-point
+      - "{{ wifi_bcm4339_k6_boot_mount_point }}"
+      - --wifi-module
+      - "{{ wifi_bcm4339_k6_uenv_wifi_module }}"
+      - --fallback-dtb
+      - /lib/firmware/brcm/imx7d-pico-pi-brcm.dtb
+  register: wifi_bcm4339_k6_boot_updated
+  changed_when: "'UPDATED' in wifi_bcm4339_k6_boot_updated.stdout"
+
+- name: Flush handlers before optional reboot or module verification
+  ansible.builtin.meta: flush_handlers
+
+- name: Reboot board to activate Broadcom WiFi DTB and uEnv.txt
+  when:
+    - wifi_bcm4339_k6_reboot_on_boot_change | bool
+    - wifi_bcm4339_k6_boot_updated.changed or not wifi_bcm4339_k6_pwrseq_stat.stat.exists
+    - not ansible_check_mode
+  block:
+    - name: Sync filesystems before rebooting board
+      ansible.builtin.command:
+        cmd: sync
+      changed_when: false
+
+    - name: Attempt warm reboot to activate Broadcom WiFi DTB and uEnv.txt
+      ansible.builtin.reboot:
+        msg: "Rebooting to load imx7d-pico-pi.dtb (wifi_module=brcm) for BCM4339 WiFi"
+        reboot_timeout: "{{ wifi_bcm4339_k6_reboot_timeout }}"
+  rescue:
+    - name: Notify operator to manually power-cycle board
+      ansible.builtin.debug:
+        msg: >-
+          [ACTION REQUIRED] Warm reboot timed out after {{ wifi_bcm4339_k6_reboot_timeout }}s on {{ inventory_hostname }}.
+          Please power-cycle or manually reboot the board now. Waiting up to
+          {{ wifi_bcm4339_k6_reboot_rescue_timeout }}s for SSH reconnection to resume playbook...
+
+    - name: Reset SSH connection before waiting for manual board reboot
+      ansible.builtin.meta: reset_connection
+
+    - name: Wait for board SSH reconnection after manual reboot
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        sleep: 5
+        timeout: "{{ wifi_bcm4339_k6_reboot_rescue_timeout }}"
+
+- name: Verify active device-tree includes usdhc2_pwrseq after boot
+  ansible.builtin.stat:
+    path: /proc/device-tree/usdhc2_pwrseq
+  register: wifi_bcm4339_k6_pwrseq_post_stat
+  failed_when:
+    - not wifi_bcm4339_k6_pwrseq_post_stat.stat.exists
+    - not ansible_check_mode
+  when: wifi_bcm4339_k6_reboot_on_boot_change | bool
+
+- name: Ensure brcmfmac kernel module is loaded
+  ansible.builtin.command:
+    cmd: modprobe brcmfmac
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Wait for wlan0 wireless network interface to register
+  ansible.builtin.stat:
+    path: /sys/class/net/wlan0
+  register: wifi_bcm4339_k6_wlan0_stat
+  until: wifi_bcm4339_k6_wlan0_stat.stat.exists
+  retries: 15
+  delay: 1
+  failed_when: not wifi_bcm4339_k6_wlan0_stat.stat.exists
+  when: not ansible_check_mode
+
+- name: Ensure brcm-bluetooth.service is enabled and started after boot
+  ansible.builtin.systemd:
+    name: brcm-bluetooth.service
+    daemon_reload: true
+    state: >-
+      {{
+        ('restarted' if wifi_bcm4339_k6_bt_unit.changed else 'started')
+        if (wifi_bcm4339_k6_enable_bluetooth_service | bool)
+        else 'stopped'
+      }}
+    enabled: "{{ wifi_bcm4339_k6_enable_bluetooth_service | bool }}"
+  when: not ansible_check_mode
+
+- name: Wait for hci0 Bluetooth interface to register
+  ansible.builtin.stat:
+    path: /sys/class/bluetooth/hci0
+  register: wifi_bcm4339_k6_hci0_stat
+  until: wifi_bcm4339_k6_hci0_stat.stat.exists
+  retries: 10
+  delay: 1
+  failed_when: not wifi_bcm4339_k6_hci0_stat.stat.exists
+  when:
+    - wifi_bcm4339_k6_enable_bluetooth_service | bool
+    - not ansible_check_mode

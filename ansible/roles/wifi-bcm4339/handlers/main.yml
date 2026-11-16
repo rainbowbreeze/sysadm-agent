@@ -1,9 +1,0 @@
----
-- name: Run depmod for wifi-bcm4339
-  ansible.builtin.command:
-    cmd: "depmod -a {{ wifi_bcm4339_kernel_version }}"
-  changed_when: true
-
-- name: Reload systemd for wifi-bcm4339
-  ansible.builtin.systemd:
-    daemon_reload: true
