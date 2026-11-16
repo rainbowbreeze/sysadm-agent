@@ -9,8 +9,6 @@ baseline_apt_gpg_keys:
   - name: vivaldi
     url: "https://repo.vivaldi.com/stable/linux_signing_key.pub"
 
-wifi_bcm4339_enable_bluetooth_service: false
-
 camera_huddly_go_video_device: "/dev/video1"
 
 stream_ustreamer_enabled: true

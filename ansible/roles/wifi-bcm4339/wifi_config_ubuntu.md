@@ -124,12 +124,23 @@ curl -fsS -u "<STREAM_USER>:<STREAM_PASSWORD>" "http://<WIFI_IP>:<STREAM_PORT>/s
 
 ---
 
-## 4. Note on Bluetooth (`brcm-bluetooth.service`) on Kernel `5.15.71`
+## 4. Bluetooth (`hci0`) Bring-Up on Kernel `5.15.71` (`GPIO4_IO18` / `gpio114` Reset Pulse)
 
-On Kernel `5.15.71`, `hciattach /dev/ttymxc6 bcm43xx 3000000 flow` may time out (`bcm43xx_init: Initialization timed out`) if UART7 RTS/CTS/DMA handshake is not initialized for the AP6335 BT core. On headless machines that only require Wi-Fi, set:
+On TechNexion PICO-PI-IMX7D (`bt_ctrlgrp`), `bt_rfkill` claims `GPIO4_IO17` (`gpio113`), while **`GPIO4_IO18` (`gpio114`, `MX7D_PAD_ECSPI1_MISO`)** is the hardware reset/enable pin on the Broadcom AP6335 (`BCM4335C0`) Bluetooth core. At power-on (`t = 0`), `gpio114` is pulled HIGH by its pad pull-up **before** the `32.768 kHz` `CCM_CLKO2` clock (`0x3038be00`) is turned on, leaving the Bluetooth controller unresponsive on `/dev/ttymxc6` (`bcm43xx_init: Initialization timed out`) until `gpio114` sees a `0 -> 1` reset pulse **after** `CCM_CLKO2` is active.
 
-```yaml
-wifi_bcm4339_enable_bluetooth_service: false
+`/usr/local/sbin/brcm-bt-reset.sh` (invoked via `ExecStartPre` in `brcm-bluetooth.service`) performs this automatically on every boot and service restart:
+
+```bash
+sudo /usr/local/sbin/brcm-clko2-enable.py
+sudo rfkill unblock bluetooth
+echo 114 | sudo tee /sys/class/gpio/export 2>/dev/null || true
+echo out | sudo tee /sys/class/gpio/gpio114/direction
+echo 0   | sudo tee /sys/class/gpio/gpio114/value
+sleep 0.5
+echo 1   | sudo tee /sys/class/gpio/gpio114/value
+sleep 1.0
+sudo /usr/bin/hciattach /dev/ttymxc6 bcm43xx 3000000 flow
+sudo hciconfig hci0 up
+hciconfig -a
+bluetoothctl show
 ```
-
-in `machines/<MACHINE_NAME>/vars.yml`.

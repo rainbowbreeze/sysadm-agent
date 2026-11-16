@@ -5,9 +5,8 @@ After=systemd-udevd.service dev-ttymxc6.device
 
 [Service]
 Type=forking
-TimeoutStartSec=20
-ExecStartPre=/usr/local/sbin/brcm-clko2-enable.py
-ExecStartPre=/usr/sbin/rfkill unblock bluetooth
+TimeoutStartSec=25
+ExecStartPre=/usr/local/sbin/brcm-bt-reset.sh
 ExecStart=/usr/bin/hciattach /dev/ttymxc6 bcm43xx 3000000 flow
 ExecStartPost=/bin/sh -c 'sleep 1 && /usr/bin/hciconfig hci0 up || true'
 Restart=on-failure

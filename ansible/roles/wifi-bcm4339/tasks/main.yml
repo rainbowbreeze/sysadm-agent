@@ -116,6 +116,15 @@
     - wifi_bcm4339_enable_bluetooth_service | bool
     - wifi_bcm4339_serial_btattach_stat.stat.exists
 
+- name: Install BCM4339 Bluetooth hardware reset helper script
+  ansible.builtin.copy:
+    src: brcm-bt-reset.sh
+    dest: /usr/local/sbin/brcm-bt-reset.sh
+    owner: root
+    group: root
+    mode: "0755"
+  register: wifi_bcm4339_bt_reset_script
+
 - name: Install brcm-bluetooth.service systemd unit
   ansible.builtin.copy:
     src: brcm-bluetooth.service
@@ -123,6 +132,7 @@
     owner: root
     group: root
     mode: "0644"
+  register: wifi_bcm4339_bt_unit
   notify: Reload systemd for wifi-bcm4339
 
 - name: Stage fallback 6.x imx7d-pico-pi-brcm.dtb in /lib/firmware/brcm
@@ -232,6 +242,23 @@
   ansible.builtin.systemd:
     name: brcm-bluetooth.service
     daemon_reload: true
-    state: "{{ 'started' if (wifi_bcm4339_enable_bluetooth_service | bool) else 'stopped' }}"
+    state: >-
+      {{
+        ('restarted' if (wifi_bcm4339_bt_reset_script.changed or wifi_bcm4339_bt_unit.changed) else 'started')
+        if (wifi_bcm4339_enable_bluetooth_service | bool)
+        else 'stopped'
+      }}
     enabled: "{{ wifi_bcm4339_enable_bluetooth_service | bool }}"
   when: not ansible_check_mode
+
+- name: Wait for hci0 Bluetooth interface to register
+  ansible.builtin.stat:
+    path: /sys/class/bluetooth/hci0
+  register: wifi_bcm4339_hci0_stat
+  until: wifi_bcm4339_hci0_stat.stat.exists
+  retries: 10
+  delay: 1
+  failed_when: not wifi_bcm4339_hci0_stat.stat.exists
+  when:
+    - wifi_bcm4339_enable_bluetooth_service | bool
+    - not ansible_check_mode
