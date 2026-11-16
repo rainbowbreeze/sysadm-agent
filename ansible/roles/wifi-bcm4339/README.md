@@ -3,8 +3,10 @@
 This module configures the **Broadcom BCM4339 (AMPAK AP6335)** SDIO WiFi (`wlan0`) and UART Bluetooth (`hci0`) controller on **TechNexion PICO-PI-IMX7D** across both **Kernel `5.x` (`5.15.71`, Ubuntu 22.04)** and **Kernel `6.x` (`6.18.x`, TechNexion Yocto / Debian)**, installing only what is needed on each system:
 - **Kernel Modules (`brcmfmac.ko`, `brcmutil.ko`)**: Installed only on `5.15.71` where the base kernel lacks in-tree `brcmfmac`; skipped automatically on `6.x` where `brcmfmac` is built-in.
 - **Firmware (`/lib/firmware/brcm/`)**: Installs `brcmfmac4339-sdio.bin`, `brcmfmac4339-sdio.txt`, and `BCM4335C0.hcd`.
-- **Device Tree (`imx7d-pico-pi.dtb`)**: Automatically selects `imx7d-pico-pi-brcm.dtb` on `5.x` (`net,rfkill-gpio`) or `imx7d-pico-pi-brcm-6.18.dtb` on `6.x` (`rfkill-gpio`), both adding `usdhc2_pwrseq` (`mmc-pwrseq-simple`) for the `32.768 kHz` external reference clock.
-- **Bluetooth Service (`brcm-bluetooth.service`)**: Installs and enables `brcm-bluetooth.service` on both `5.x` and `6.x`, automatically stopping and masking the conflicting `serial-btattach@ttymxc6.{timer,service}` unit when present on `6.x`.
+- **32.768 kHz Reference Clock (`CCM_CLKO2`)**:
+  - **Kernel `5.x` (`5.15.71`)**: Stock `imx7d-pico-pi-qca.dtb` already enumerates BCM4339 on SDIO (`mmc1:0001:1`), `wlreg_on`, `wifi_pwr_on`, `bt_rfkill`, and `/dev/ttymxc6`, while adding `assigned-clocks` to `clock-controller@30380000` in DTB hangs NXP downstream `lf-5.15.71` during `CLK_OF_DECLARE` early boot. Therefore on `5.x`, `/dev/mmcblk2p1` (`uEnv.txt` and `.dtb`) is left **completely untouched** and `/usr/local/sbin/brcm-clko2-enable.py` enables `CCM_CLKO2` (`0x3038be00` -> `MUX=7` `ckil` `32.768 kHz`, `ENABLE=1`) automatically via an `install brcmfmac` modprobe hook on every boot and `modprobe` call (no reboot required).
+  - **Kernel `6.x` (`6.18.x`)**: Patches `imx7d-pico-pi.dtb` in-place via `/usr/local/sbin/wifi-bcm4339-update-boot.py` to configure `usdhc2_pwrseq` (`mmc-pwrseq-simple`) and `rfkill-gpio`, and updates `wifi_module=brcm` in-place inside `uEnv.txt`.
+- **Bluetooth Service (`brcm-bluetooth.service`)**: Installs and enables `brcm-bluetooth.service` (`TimeoutStartSec=20`) after `wlan0` verification on both `5.x` and `6.x`, automatically stopping and masking conflicting `serial-btattach@ttymxc6.{timer,service}` units when present on `6.x`.
 
 ---
 
@@ -28,9 +30,11 @@ This module configures the **Broadcom BCM4339 (AMPAK AP6335)** SDIO WiFi (`wlan0
   - `brcmfmac4339-sdio.bin`: BCM4339 WiFi firmware binary (copied from `cyfmac4339-sdio.bin`)
   - `brcmfmac4339-sdio.txt`: BCM4339 WiFi NVRAM calibration file for TechNexion PICO boards
   - `BCM4335C0.hcd`: BCM4339 (`BCM4335C0`) Bluetooth 4.1 UART patchram firmware (`Revision: 0x242`)
-- **Boot Partition (`/dev/mmcblk2p1`)**:
-  - `imx7d-pico-pi.dtb`: Kernel-matched DTB (`imx7d-pico-pi-brcm.dtb` for `5.x`, `imx7d-pico-pi-brcm-6.18.dtb` for `6.x`) with `mmc-pwrseq-simple` (`usdhc2_pwrseq`) and `bt_rfkill`
-  - `uEnv.txt`: Configures `wifi_module=brcm` so U-Boot loads `imx7d-pico-pi.dtb`
+- **Modprobe Configuration (`/etc/modprobe.d/brcmfmac.conf`)**:
+  - Blacklists legacy `bcmdhd` (`blacklist bcmdhd`) so it never clashes with `brcmfmac` on SDIO, and sets `options brcmfmac feature_disable=0x82000` (disabling `FWSUP` `0x2000` and `SAE` `0x80000` firmware offload so `wpa_supplicant` handles WPA2-PSK/WPA3 handshakes in user space).
+- **Boot Partition (`/dev/mmcblk2p1`, managed by `/usr/local/sbin/wifi-bcm4339-update-boot.py`)**:
+  - `imx7d-pico-pi.dtb` (`imx7d-pico-pi.dtb.orig` backup saved): Patches the board's native `imx7d-pico-pi.dtb` in-place via pure-Python FDT to configure `usdhc2_pwrseq` (`mmc-pwrseq-simple`, `32.768 kHz` `CLKO2`) and `mmc-pwrseq` on `mmc@30b50000` (plus `rfkill-gpio` on `6.x`), falling back to staged `/lib/firmware/brcm/imx7d-pico-pi-brcm.dtb` only if native `imx7d-pico-pi.dtb` is missing.
+  - `uEnv.txt` (`uEnv.txt.orig` backup saved): Updates `wifi_module=brcm` in-place without clobbering existing `mmcroot`, `uenvcmd`, `bootcmd_mmc`, or `boot.scr` settings.
 - **Systemd Service**:
   - `/etc/systemd/system/brcm-bluetooth.service`: Unblocks `bluetooth` rfkill and runs `hciattach /dev/ttymxc6 bcm43xx 3000000 flow` at boot (masks `serial-btattach@ttymxc6.{timer,service}` on `6.x` if present).
 
@@ -55,3 +59,10 @@ hciconfig -a
 systemctl status brcm-bluetooth.service
 sudo hcitool lescan
 ```
+
+---
+
+## 4. OS-Specific Deep-Dive & Reproduction Guides
+
+- **Ubuntu 22.04 (`5.15.71`)**: [wifi_config_ubuntu.md](./wifi_config_ubuntu.md) — Root-cause analysis of the `5.15.71` `CLK_OF_DECLARE` DTB boot hang, manual `CCM_CLKO2` (`32.768 kHz`) bring-up, and dual-homed (`eth0` + `wlan0`) source policy routing reproduction steps.
+- **TechNexion Yocto (`6.18-wrynose`)**: [wifi_config_yocto.md](./wifi_config_yocto.md) — Regulatory domain (`IT`), `feature_disable=0x82000`, and persistent ConnMan configuration on Kernel `6.x`.

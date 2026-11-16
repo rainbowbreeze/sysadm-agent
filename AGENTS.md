@@ -71,7 +71,7 @@ Whenever the user asks you to perform one of the core workflows below, **read an
 
 3. **Create or Modify a Composable Module (`ansible/roles/<module_name>/`)**
    - **Read**: [.agents/skills/ai-sysadm-create-module/SKILL.md](file:///Users/alfredomorresi/Documents/develop/sysadm-agent/.agents/skills/ai-sysadm-create-module/SKILL.md)
-   - **What it does**: Scaffolds a self-contained, idempotent role (`<category>_<variant>`) supporting `Debian` and/or `Alpine` with a structured header in `defaults/main.yml`, and presents all configured values to the user for confirmation or editing.
+   - **What it does**: Scaffolds a self-contained, idempotent role (`<category>_<variant>`) supporting `Debian`, `TechNexion i.MX Release Distro`, and/or `Alpine` with a structured header in `defaults/main.yml`, and presents all configured values to the user for confirmation or editing.
 
 ---
 

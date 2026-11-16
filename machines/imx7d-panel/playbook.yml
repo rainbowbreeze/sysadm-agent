@@ -10,9 +10,11 @@
       tags: [baseline]
     - role: wifi-bcm4339
       tags: [wifi-bcm4339]
+    - role: wifi-home-conf
+      tags: [wifi-home-conf]
     - role: rainbowhat-imx7d
       tags: [rainbowhat-imx7d]
     - role: camera-ov5645
       tags: [camera-ov5645]
-    - role: wifi-home-conf
-      tags: [wifi-home-conf]
+    - role: stream-ustreamer
+      tags: [stream-ustreamer]

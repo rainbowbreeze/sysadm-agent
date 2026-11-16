@@ -1,10 +1,12 @@
 [Unit]
 Description=Broadcom BCM4339 (AP6335) Bluetooth HCI UART Attach
 Before=bluetooth.service
-After=dev-ttymxc6.device
+After=systemd-udevd.service dev-ttymxc6.device
 
 [Service]
 Type=forking
+TimeoutStartSec=20
+ExecStartPre=/usr/local/sbin/brcm-clko2-enable.py
 ExecStartPre=/usr/sbin/rfkill unblock bluetooth
 ExecStart=/usr/bin/hciattach /dev/ttymxc6 bcm43xx 3000000 flow
 ExecStartPost=/bin/sh -c 'sleep 1 && /usr/bin/hciconfig hci0 up || true'
