@@ -7,6 +7,14 @@
       Module camera-ov5645 only supports Debian/Ubuntu and TechNexion i.MX Release Distro
       (found {{ ansible_facts['os_family'] }}).
 
+- name: Verify configured camera_ov5645_rotation angle is valid
+  ansible.builtin.assert:
+    that:
+      - (camera_ov5645_rotation | int) in [0, 90, 180, 270]
+    fail_msg: >-
+      camera_ov5645_rotation must be one of 0, 90, 180, or 270
+      (found {{ camera_ov5645_rotation }}).
+
 - name: Install V4L2, GStreamer, I2C, and Python dependencies for OV5645 MIPI-CSI camera
   ansible.builtin.package:
     name: "{{ camera_ov5645_packages }}"

@@ -46,14 +46,17 @@ camera detect
 
 ### Capturing JPEG Snapshots (`capture` / `snapshot`)
 ```bash
-# Capture a default 1920x1080 JPEG snapshot (15 warmup frames, 180° rotation, 95% quality)
+# Capture a default 1280x960 JPEG snapshot (15 warmup frames, 180° rotation, 95% quality)
 camera capture /tmp/photo.jpg
+
+# Capture with a custom rotation angle (--rotation, --rotate, or -r: 0, 90, 180, 270)
+camera capture /tmp/photo_portrait.jpg --rotation 90
+
+# Capture a 1920x1080 (16:9) snapshot (automatically uses full-array 5MP -> 1080p crop/scale on Kernel 6.x)
+camera capture /tmp/photo_1080p.jpg --width 1920 --height 1080
 
 # Capture a full 5MP (2592x1944) snapshot with custom warmup frames and quality
 camera capture /tmp/photo_5mp.jpg --width 2592 --height 1944 --warmup 20 --quality 98
-
-# Capture a 1280x960 snapshot without rotation
-camera capture /tmp/photo_raw_orient.jpg --width 1280 --height 960 --rotate 0
 
 # Capture with an auto-generated timestamp filename in /tmp/camera_snapshot_<timestamp>.jpg
 camera snapshot
@@ -61,7 +64,43 @@ camera snapshot
 
 ---
 
-## 4. Controlling the Camera from Python
+## 4. Configuring Orientation & Resolution Options in Ansible (`vars.yml`)
+
+### Customizing Default Image Orientation (`camera_ov5645_rotation`)
+Set `camera_ov5645_rotation` (`0`, `90`, `180`, or `270`) in `machines/<MACHINE_NAME>/vars.yml` and re-run role provisioning (`--tags camera-ov5645`) to change the persistent default orientation used by `/usr/local/bin/camera` (and `/usr/local/bin/camera-booth`):
+
+```yaml
+camera_ov5645_rotation: 90   # Allowed values: 0, 90, 180, 270 (default: 180)
+```
+
+### Switching Between Color-Accurate Capture Options (Kernel `6.x` Mainline `ov5645.ko`)
+On Kernel `6.x`, mainline `ov5645.ko`'s stock `1920x1080` register table center-crops the sensor (`X_ADDR_START = 0x0150`), skipping the horizontal Optical Black reference columns (`X = 0..15`) and causing a strong green Black Level Calibration (BLC) cast. Three clean options are supported (full hardware & register details in `camera_config_yocto.md`):
+
+1. **Option 1 — Active Default (`1280x960` Native `SXGA` `2×2` Binned)**:
+   - Best indoor low-light sensitivity (`4×` analog binning), dead-neutral blacks, full wide FOV, fast `30 fps` warmup.
+   - Default in `defaults/main.yml`:
+     ```yaml
+     camera_ov5645_default_width: 1280
+     camera_ov5645_default_height: 960
+     ```
+2. **Option 2 — `1920x1080` (`16:9`) via Full-Array `2592x1944` Capture + GStreamer Crop/Downscale**:
+   - Already built into `camera.py`: setting the default resolution to `1920x1080` in `vars.yml` automatically captures from clean full-width `2592x1944` (`X_ADDR_START = 0x0000`) and crops/downscales `2592x1458` $\rightarrow$ `1920x1080` in GStreamer:
+     ```yaml
+     camera_ov5645_default_width: 1920
+     camera_ov5645_default_height: 1080
+     camera_ov5645_native_1080p: false
+     ```
+3. **Option 3 — Native `1920x1080` via Patched `ov5645.ko` Hardware ISP Scaler**:
+   - Patch `ov5645_setting_1080p` in `ov5645.ko` using the register table and procedure in `camera_config_yocto.md` (Section 5), then enable native `1080p` in `vars.yml`:
+     ```yaml
+     camera_ov5645_default_width: 1920
+     camera_ov5645_default_height: 1080
+     camera_ov5645_native_1080p: true
+     ```
+
+---
+
+## 5. Controlling the Camera from Python
 
 You can also import the camera functions directly from `/opt/camera/camera.py`:
 
@@ -82,13 +121,13 @@ v4l2 = get_v4l2_status()
 mclk = check_clko1_status()
 print(f"Sensor: {sensor['model']} ({sensor['chip_id']}) on {v4l2['device']}, MCLK={mclk['frequency_hz']} Hz")
 
-# 2. Capture a 1920x1080 JPEG snapshot
+# 2. Capture a 1280x960 JPEG snapshot with custom rotation
 ok = capture_snapshot(
     output_file="/tmp/snapshot.jpg",
-    width=1920,
-    height=1080,
+    width=1280,
+    height=960,
     warmup_frames=15,
-    rotate=180,
+    rotation=180,
     quality=95,
 )
 print("Capture succeeded:", ok)

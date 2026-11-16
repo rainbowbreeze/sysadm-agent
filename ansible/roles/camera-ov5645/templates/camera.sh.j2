@@ -6,11 +6,11 @@
 #              Camera module (OmniVision OV5645 / OV5640).
 #
 # Supported Commands:
-#   camera status             Display hardware status, I2C probe, and V4L2 info
-#   camera status --json      Output status as JSON
-#   camera capture [file]     Capture snapshot JPEG (default: /tmp/camera_snapshot_<ts>.jpg)
-#   camera snapshot [file]    Alias for capture
-#   camera detect             Quick diagnostic probe of camera hardware
+#   camera status                         Display hardware status, I2C probe, and V4L2 info
+#   camera status --json                  Output status as JSON
+#   camera capture [file] [--rotation N]  Capture snapshot JPEG (default: 1280x960, /tmp/camera_snapshot_<ts>.jpg)
+#   camera snapshot [file] [--rotation N] Alias for capture
+#   camera detect                         Quick diagnostic probe of camera hardware
 # ==============================================================================
 set -euo pipefail
 
@@ -33,7 +33,9 @@ export CAMERA_I2C_BUS="${CAMERA_I2C_BUS:-{{ camera_ov5645_i2c_bus }}}"
 export CAMERA_I2C_ADDR="${CAMERA_I2C_ADDR:-{{ camera_ov5645_i2c_address }}}"
 export CAMERA_DEFAULT_WIDTH="${CAMERA_DEFAULT_WIDTH:-{{ camera_ov5645_default_width }}}"
 export CAMERA_DEFAULT_HEIGHT="${CAMERA_DEFAULT_HEIGHT:-{{ camera_ov5645_default_height }}}"
-export CAMERA_DEFAULT_ROTATE="${CAMERA_DEFAULT_ROTATE:-{{ camera_ov5645_default_rotate }}}"
+export CAMERA_DEFAULT_ROTATE="${CAMERA_ROTATION:-${CAMERA_DEFAULT_ROTATE:-{{ camera_ov5645_rotation | int }}}}"
+export CAMERA_ROTATION="${CAMERA_ROTATION:-${CAMERA_DEFAULT_ROTATE}}"
+export CAMERA_NATIVE_1080P="${CAMERA_NATIVE_1080P:-{{ '1' if (camera_ov5645_native_1080p | bool) else '0' }}}"
 export CAMERA_DEFAULT_WARMUP="${CAMERA_DEFAULT_WARMUP:-{{ camera_ov5645_default_warmup }}}"
 export CAMERA_DEFAULT_QUALITY="${CAMERA_DEFAULT_QUALITY:-{{ camera_ov5645_default_quality }}}"
 

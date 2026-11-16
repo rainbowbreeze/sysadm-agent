@@ -35,9 +35,16 @@ I2C_SLAVE_FORCE = 0x0706
 DEFAULT_I2C_BUS = os.environ.get("CAMERA_I2C_BUS", "/dev/i2c-3")
 DEFAULT_I2C_ADDR = int(os.environ.get("CAMERA_I2C_ADDR", "0x3c"), 0)
 DEFAULT_VIDEO_DEV = os.environ.get("CAMERA_VIDEO_DEV", "/dev/video1")
-DEFAULT_WIDTH = int(os.environ.get("CAMERA_DEFAULT_WIDTH", "1920"))
-DEFAULT_HEIGHT = int(os.environ.get("CAMERA_DEFAULT_HEIGHT", "1080"))
-DEFAULT_ROTATE = int(os.environ.get("CAMERA_DEFAULT_ROTATE", "180"))
+DEFAULT_WIDTH = int(os.environ.get("CAMERA_DEFAULT_WIDTH", "1280"))
+DEFAULT_HEIGHT = int(os.environ.get("CAMERA_DEFAULT_HEIGHT", "960"))
+DEFAULT_ROTATE = int(
+    os.environ.get("CAMERA_ROTATION", os.environ.get("CAMERA_DEFAULT_ROTATE", "180"))
+)
+DEFAULT_NATIVE_1080P = os.environ.get("CAMERA_NATIVE_1080P", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 DEFAULT_WARMUP = int(os.environ.get("CAMERA_DEFAULT_WARMUP", "15"))
 DEFAULT_QUALITY = int(os.environ.get("CAMERA_DEFAULT_QUALITY", "95"))
 
@@ -305,6 +312,22 @@ SUPPORTED_RESOLUTIONS = [
 ]
 
 
+def _uses_mainline_ov5645_driver(bus_path=DEFAULT_I2C_BUS, addr=DEFAULT_I2C_ADDR):
+    """
+    Return True when I2C sensor 3-003c is bound to mainline Linux 'ov5645' (Kernel 6.x),
+    whose stock 1920x1080 center-crop table (X_ADDR_START=0x0150) skips horizontal
+    Optical Black reference columns and introduces a green BLC cast.
+    """
+    bus_num = bus_path.rsplit("-", 1)[-1] if "-" in bus_path else "3"
+    sysfs_driver_link = f"/sys/bus/i2c/devices/{bus_num}-{addr:04x}/driver"
+    if os.path.islink(sysfs_driver_link):
+        try:
+            return os.path.basename(os.readlink(sysfs_driver_link)) == "ov5645"
+        except OSError:
+            return False
+    return False
+
+
 def capture_snapshot(
     output_file,
     width=DEFAULT_WIDTH,
@@ -313,6 +336,8 @@ def capture_snapshot(
     warmup_frames=DEFAULT_WARMUP,
     rotate=DEFAULT_ROTATE,
     quality=DEFAULT_QUALITY,
+    rotation=None,
+    native_1080p=DEFAULT_NATIVE_1080P,
 ):
     """
     Capture a high-quality JPEG snapshot from the V4L2 MIPI-CSI camera device.
@@ -322,20 +347,29 @@ def capture_snapshot(
     1. The NXP mx6s-csi DMA controller synchronizes ping-pong buffers with the sensor VBI.
     2. The OmniVision OV5645 ISP Auto Exposure Control (AEC) and Auto White Balance (AWB)
        stabilize to true scene illumination.
-    3. The optional 180-degree rotation corrects for the ribbon cable's inverted mounting orientation.
+    3. Rotation (0, 90, 180, or 270 degrees) adjusts for camera/panel mounting orientation.
+    4. On Kernel 6.x mainline 'ov5645', 1280x960 (SXGA 2x2 binned) is used by default for
+       clean Black Level Calibration (BLC) and low indoor noise, while 1920x1080 requests
+       automatically capture from full-array 2592x1944 and crop/downscale to 16:9 1920x1080
+       unless native_1080p=True (for Option 3 patched ov5645.ko).
 
     Args:
         output_file (str): Destination path for the saved JPEG file.
-        width (int): Frame width in pixels (1280, 1920, or 2592; default 1920).
-        height (int): Frame height in pixels (960, 1080, or 1944; default 1080).
+        width (int): Frame width in pixels (1280, 1920, or 2592; default 1280).
+        height (int): Frame height in pixels (960, 1080, or 1944; default 960).
         video_dev (str): Path to V4L2 device node (default /dev/video1).
         warmup_frames (int): Number of warmup frames to stream (default 15).
         rotate (int): Image rotation in degrees: 0, 90, 180, or 270 (default 180).
         quality (int): JPEG encoding quality from 1 to 100 (default 95).
+        rotation (int, optional): Alias for rotate when passed by Python callers.
+        native_1080p (bool): Use native sensor 1920x1080 mode even on mainline ov5645.
 
     Returns:
         bool: True if capture succeeded and file was verified, False otherwise.
     """
+    if rotation is not None:
+        rotate = int(rotation)
+
     if not os.path.exists(video_dev):
         print(f"[ERROR] Camera device {video_dev} does not exist.", file=sys.stderr)
         return False
@@ -345,6 +379,20 @@ def capture_snapshot(
         closest = min(SUPPORTED_RESOLUTIONS, key=lambda res: abs(res[0] - width) + abs(res[1] - height))
         print(f"[INFO] Adjusting resolution {width}x{height} -> supported hardware mode {closest[0]}x{closest[1]}")
         width, height = closest
+
+    use_5mp_1080p_downscale = (
+        (width, height) == (1920, 1080)
+        and not native_1080p
+        and _uses_mainline_ov5645_driver()
+    )
+    if use_5mp_1080p_downscale:
+        sensor_width, sensor_height = 2592, 1944
+        print(
+            "[INFO] Capturing full-array 2592x1944 + 16:9 crop/downscale -> 1920x1080 "
+            "(avoids mainline ov5645 1080p center-crop BLC green cast)."
+        )
+    else:
+        sensor_width, sensor_height = width, height
 
     # Ensure parent output directory exists
     output_abs = os.path.abspath(output_file)
@@ -370,10 +418,26 @@ def capture_snapshot(
             f"device={video_dev}",
             f"num-buffers={warmup_frames}",
             "!",
-            f"video/x-raw,format=UYVY,width={width},height={height}",
-            "!",
-            "videoconvert",
+            f"video/x-raw,format=UYVY,width={sensor_width},height={sensor_height}",
         ]
+        if use_5mp_1080p_downscale:
+            pipeline.extend([
+                "!",
+                "videocrop",
+                "top=242",
+                "bottom=244",
+                "!",
+                "videoconvert",
+                "!",
+                "videoscale",
+                "!",
+                f"video/x-raw,width={width},height={height}",
+            ])
+        else:
+            pipeline.extend([
+                "!",
+                "videoconvert",
+            ])
 
         # Add hardware-accelerated / efficient videoflip for camera orientation correction
         if rotate == 180:
@@ -387,13 +451,14 @@ def capture_snapshot(
         else:
             print(f"[WARN] Unsupported rotation '{rotate}deg', proceeding without rotation.", file=sys.stderr)
 
-        # JPEG encoder and multifilesink
+        # JPEG encoder and multifilesink (keep only latest 2 frames in /tmp RAM)
         pipeline.extend([
             "!",
             "jpegenc",
             f"quality={int(quality)}",
             "!",
             "multifilesink",
+            "max-files=2",
             f"location={temp_pattern}",
         ])
 
@@ -410,7 +475,7 @@ def capture_snapshot(
                 print(f"[ERROR] GStreamer pipeline failed (code {res.returncode}): {res.stderr.strip()}", file=sys.stderr)
                 return False
 
-            # Find all captured frames in the temporary directory
+            # Find captured frames in the temporary directory
             captured_frames = sorted(glob.glob(os.path.join(temp_dir, "frame_*.jpg")))
             if not captured_frames:
                 print("[ERROR] No image frames were generated by the capture pipeline.", file=sys.stderr)
@@ -427,7 +492,7 @@ def capture_snapshot(
                 size_kb = os.path.getsize(output_abs) / 1024.0
                 print(
                     f"[SUCCESS] Snapshot captured successfully: {output_abs} "
-                    f"({size_kb:.1f} KB, frame #{len(captured_frames)})"
+                    f"({size_kb:.1f} KB, frame #{warmup_frames})"
                 )
                 return True
             else:
@@ -501,6 +566,7 @@ def cmd_capture(args):
         warmup_frames=args.warmup,
         rotate=args.rotate,
         quality=args.quality,
+        native_1080p=args.native_1080p,
     )
     if not success:
         sys.exit(1)
@@ -570,11 +636,19 @@ def main():
     )
     sub_capture.add_argument(
         "--rotate",
+        "--rotation",
         "-r",
+        dest="rotate",
         type=int,
         choices=[0, 90, 180, 270],
         default=DEFAULT_ROTATE,
         help=f"Image rotation angle in degrees (0, 90, 180, or 270; default: {DEFAULT_ROTATE})",
+    )
+    sub_capture.add_argument(
+        "--native-1080p",
+        action="store_true",
+        default=DEFAULT_NATIVE_1080P,
+        help="Use native sensor 1920x1080 mode directly (only when ov5645.ko is patched)",
     )
     sub_capture.add_argument(
         "--warmup",

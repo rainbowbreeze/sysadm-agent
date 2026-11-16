@@ -3,6 +3,11 @@
 # Description: Configures MIPI-CSI V4L2/I2C device permissions, boot-time 24MHz master clock (CCM_CLKO1) initialization, GStreamer capture pipeline dependencies, DTB camera/regulator patching (5.x & 6.x), and deploys the OmniVision OV5645/OV5640 camera driver and CLI (/usr/local/bin/camera) for TechNexion PICO-PI-IMX7D (NXP i.MX7D) hardware.
 # Supported OS Families: Debian, TechNexion i.MX Release Distro
 # Required Secrets (in machines/<MACHINE_NAME>/secrets.yml): None
+# Key Configurable Parameters (override in machines/<MACHINE_NAME>/vars.yml):
+#   - camera_ov5645_default_width / camera_ov5645_default_height: Still capture resolution
+#     (default: 1280x960 Option 1 SXGA 2x2 binned; set 1920x1080 for Option 2 5MP->1080p, or 2592x1944 — see README.md)
+#   - camera_ov5645_rotation: Default image rotation angle in degrees: 0, 90, 180, or 270 (default: 180)
+#   - camera_ov5645_native_1080p: Set true only when ov5645.ko is patched per Option 3 in camera_config_yocto.md (default: false)
 
 camera_ov5645_install_dir: "/opt/camera"
 camera_ov5645_python_venv: "/opt/camera/venv"
@@ -11,9 +16,11 @@ camera_ov5645_group: "{{ ansible_user }}"
 camera_ov5645_video_device: "/dev/video1"
 camera_ov5645_i2c_bus: "/dev/i2c-3"
 camera_ov5645_i2c_address: "0x3c"
-camera_ov5645_default_width: 1920
-camera_ov5645_default_height: 1080
+camera_ov5645_default_width: 1280
+camera_ov5645_default_height: 960
 camera_ov5645_default_rotate: 180
+camera_ov5645_rotation: "{{ camera_ov5645_default_rotate }}"
+camera_ov5645_native_1080p: false
 camera_ov5645_default_warmup: 15
 camera_ov5645_default_quality: 95
 camera_ov5645_boot_partition: "/dev/mmcblk2p1"
