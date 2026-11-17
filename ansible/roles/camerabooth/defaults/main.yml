@@ -12,6 +12,7 @@
 #   - camerabooth_idle_timeout: Seconds of inactivity before putting camera stream to sleep (default: 60; set 0 to disable)
 #   - camerabooth_tap_anywhere: Allow tapping anywhere on the video canvas to wake, trigger/cancel countdown, or keep photo (default: true)
 #   - camerabooth_allow_discard: Show "Discard & Retake" button during post-shot review (default: true)
+#   - camerabooth_maximized: Maximize the Camera Booth window to fill desktop workarea below Weston's top bar (default: true)
 
 camerabooth_script_path: "/usr/local/bin/camera-booth"
 camerabooth_user_home: "{{ '/root' if ansible_user == 'root' else '/home/' ~ ansible_user }}"
@@ -26,12 +27,13 @@ camerabooth_review_seconds: 6
 camerabooth_idle_timeout: 60
 camerabooth_tap_anywhere: true
 camerabooth_allow_discard: true
+camerabooth_maximized: true
 camerabooth_window_title: "Camera Booth"
 camerabooth_window_width: 740
 camerabooth_window_height: 410
 camerabooth_preview_width: 560
-camerabooth_preview_height: 305
-camerabooth_button_height: 50
+camerabooth_preview_height: 360
+camerabooth_button_height: 46
 camerabooth_xdg_runtime_dir: "/run/user/0"
 camerabooth_wayland_display: "wayland-0"
 camerabooth_gdk_backend: "wayland"

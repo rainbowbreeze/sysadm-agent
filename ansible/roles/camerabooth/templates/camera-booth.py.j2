@@ -53,6 +53,7 @@ REVIEW_SECONDS = max(1, int({{ camerabooth_review_seconds | int }}))
 IDLE_TIMEOUT_SECONDS = max(0, int({{ camerabooth_idle_timeout | int }}))
 TAP_ANYWHERE = {{ "True" if (camerabooth_tap_anywhere | bool) else "False" }}
 ALLOW_DISCARD = {{ "True" if (camerabooth_allow_discard | bool) else "False" }}
+MAXIMIZED = {{ "True" if (camerabooth_maximized | bool) else "False" }}
 WIN_W, WIN_H = {{ camerabooth_window_width }}, {{ camerabooth_window_height }}
 PREVIEW_W, PREVIEW_H = {{ camerabooth_preview_width }}, {{ camerabooth_preview_height }}
 BUTTON_H = {{ camerabooth_button_height }}
@@ -146,7 +147,9 @@ class CameraBoothApp(Gtk.Window):
         super().__init__(title="{{ camerabooth_window_title }}")
         self.set_default_size(WIN_W, WIN_H)
         self.set_position(Gtk.WindowPosition.CENTER)
-        self.set_border_width(8)
+        self.set_border_width(6)
+        if MAXIMIZED:
+            self.maximize()
         self.connect("destroy", self.on_destroy)
 
         os.makedirs(BOOTH_DIR, exist_ok=True)
@@ -174,11 +177,12 @@ class CameraBoothApp(Gtk.Window):
         self.review_timer_id = None
         self.idle_timer_id = None
 
-        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         self.add(vbox)
 
         self.canvas = Gtk.DrawingArea()
-        self.canvas.set_size_request(PREVIEW_W, PREVIEW_H)
+        # Keep minimum size request compact so Wayland maximize() fits any panel workarea cleanly
+        self.canvas.set_size_request(240, 160)
         self.canvas.connect("draw", self.on_draw_canvas)
         if TAP_ANYWHERE:
             self.canvas.add_events(

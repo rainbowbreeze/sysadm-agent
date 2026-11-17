@@ -26,7 +26,7 @@ This module deploys the single-file **Python 3 + GTK 3 + GStreamer (`PyGObject`)
 
 | Path | Description |
 | :--- | :--- |
-| **`/usr/local/bin/camera-booth`** | Standalone Python 3 + GTK 3 + GStreamer touchscreen photobooth application (`740×410` window sized for `800×480` LCD displays) |
+| **`/usr/local/bin/camera-booth`** | Standalone Python 3 + GTK 3 + GStreamer touchscreen photobooth application (maximized to fill desktop workarea below Weston's top bar) |
 | **`~/camera_booth.py`** | Convenience symlink in the user's home folder pointing to `/usr/local/bin/camera-booth` |
 | **`~/camera_booth/`** | Directory where captured photos are saved (`photo_<YYYYMMDD_HHMMSS>.jpg`, default `1280×960`) |
 | **`/usr/share/weston/icon_camera.png`** | `32×32` RGBA PNG camera icon displayed in the Weston top panel |
@@ -42,6 +42,7 @@ camerabooth_review_seconds: 6      # Seconds to display captured photo before re
 camerabooth_idle_timeout: 60       # Seconds of inactivity before camera sleep (0 disables sleep)
 camerabooth_tap_anywhere: true     # Tap video canvas to wake, start/cancel countdown, or keep photo
 camerabooth_allow_discard: true    # Show "✕ Discard & Retake" button during post-shot review
+camerabooth_maximized: true        # Maximize window to fill desktop workarea below Weston top bar
 camerabooth_rotation: ""           # Optional override (0, 90, 180, 270); "" inherits camera_ov5645_rotation
 ```
 
