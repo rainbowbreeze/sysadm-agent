@@ -72,6 +72,15 @@
     - wifi_bcm4339_k6_enable_bluetooth_service | bool
     - wifi_bcm4339_k6_serial_btattach_stat.stat.exists
 
+- name: Install Bluetooth UART hardware reset helper (/usr/local/sbin/brcm-bt-reset.sh)
+  ansible.builtin.copy:
+    src: brcm-bt-reset.sh
+    dest: /usr/local/sbin/brcm-bt-reset.sh
+    owner: root
+    group: root
+    mode: "0755"
+  register: wifi_bcm4339_k6_bt_reset
+
 - name: Install brcm-bluetooth.service systemd unit
   ansible.builtin.copy:
     src: brcm-bluetooth.service
@@ -184,7 +193,7 @@
     daemon_reload: true
     state: >-
       {{
-        ('restarted' if wifi_bcm4339_k6_bt_unit.changed else 'started')
+        ('restarted' if (wifi_bcm4339_k6_bt_unit.changed or wifi_bcm4339_k6_bt_reset.changed) else 'started')
         if (wifi_bcm4339_k6_enable_bluetooth_service | bool)
         else 'stopped'
       }}

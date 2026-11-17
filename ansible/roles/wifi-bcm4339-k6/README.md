@@ -30,7 +30,8 @@ This module configures the **Broadcom BCM4339 (AMPAK AP6335)** SDIO WiFi (`wlan0
   - `/etc/modprobe.d/brcmfmac.conf` (`blacklist bcmdhd`, `options brcmfmac feature_disable=0x82000`)
 - **Boot Partition CLI Updater**:
   - `/usr/local/sbin/wifi-bcm4339-update-boot.py` (`--boot-partition`, `--mount-point`, `--wifi-module`, `--fallback-dtb`)
-- **Bluetooth Systemd Service**:
+- **Bluetooth Systemd Service & Reset Helper**:
+  - `/usr/local/sbin/brcm-bt-reset.sh` (power-cycles `bt_rfkill` `GPIO4_IO17` and pulses `GPIO4_IO18` `BT_RST_N` so `BCM4335C0` cleanly enters its `115,200` baud ROM bootloader on both cold boot and service restarts)
   - `/etc/systemd/system/brcm-bluetooth.service`
 
 ---
