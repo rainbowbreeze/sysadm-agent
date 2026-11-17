@@ -3,10 +3,12 @@
 Touchscreen GTK 3 + GStreamer Photobooth Application (/usr/local/bin/camera-booth)
 Features:
   - Live low-FPS camera preview stream matching final photo framing, color, and rotation
+  - Tap-anywhere on the video canvas to wake camera, start/cancel countdown, or accept photo
   - High-contrast animated visual countdown overlay (e.g., 3 -> 2 -> 1 -> shutter flash)
   - Zero-shutter-lag capture at countdown = 0 from the already-converged sensor stream
     (with automatic CLI fallback if GStreamer live streaming is unavailable)
-  - Post-capture photo review with automatic return to live viewfinder
+  - Post-capture review with "Discard & Retake" and "Keep & Back to Live" actions
+  - Automatic idle camera sleep (power/CPU save, frees /dev/video1) with instant touch-to-wake
 """
 
 import datetime
@@ -48,11 +50,15 @@ COUNTDOWN_SECONDS = max(0, int({{ camerabooth_countdown_seconds | int }}))
 PREVIEW_ENABLED = {{ "True" if (camerabooth_preview_enabled | bool) else "False" }}
 PREVIEW_FPS = max(1, min(15, int({{ camerabooth_preview_fps | int }})))
 REVIEW_SECONDS = max(1, int({{ camerabooth_review_seconds | int }}))
+IDLE_TIMEOUT_SECONDS = max(0, int({{ camerabooth_idle_timeout | int }}))
+TAP_ANYWHERE = {{ "True" if (camerabooth_tap_anywhere | bool) else "False" }}
+ALLOW_DISCARD = {{ "True" if (camerabooth_allow_discard | bool) else "False" }}
 WIN_W, WIN_H = {{ camerabooth_window_width }}, {{ camerabooth_window_height }}
 PREVIEW_W, PREVIEW_H = {{ camerabooth_preview_width }}, {{ camerabooth_preview_height }}
 BUTTON_H = {{ camerabooth_button_height }}
 
 STATE_LIVE = "live"
+STATE_SLEEP = "sleep"
 STATE_COUNTDOWN = "countdown"
 STATE_CAPTURING = "capturing"
 STATE_REVIEW = "review"
@@ -103,7 +109,6 @@ def _load_camera_config():
         except ValueError:
             pass
 
-    # Ensure 24MHz CLKO1 MCLK is enabled when /opt/camera/camera.py is available
     if os.path.isfile("/opt/camera/camera.py"):
         try:
             sys.path.insert(0, "/opt/camera")
@@ -156,6 +161,10 @@ class CameraBoothApp(Gtk.Window):
 
         self.live_pixbuf = None
         self.review_pixbuf = None
+        self.last_captured_path = None
+        self.last_activity_ts = time.monotonic()
+        self._last_tap_ts = 0.0
+
         self.countdown_end = 0.0
         self.countdown_total = float(COUNTDOWN_SECONDS)
         self.countdown_timer_id = None
@@ -163,6 +172,7 @@ class CameraBoothApp(Gtk.Window):
         self.flash_timer_id = None
         self.review_end = 0.0
         self.review_timer_id = None
+        self.idle_timer_id = None
 
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.add(vbox)
@@ -170,17 +180,46 @@ class CameraBoothApp(Gtk.Window):
         self.canvas = Gtk.DrawingArea()
         self.canvas.set_size_request(PREVIEW_W, PREVIEW_H)
         self.canvas.connect("draw", self.on_draw_canvas)
+        if TAP_ANYWHERE:
+            self.canvas.add_events(
+                Gdk.EventMask.BUTTON_PRESS_MASK | Gdk.EventMask.TOUCH_MASK
+            )
+            self.canvas.connect("button-press-event", self.on_canvas_button_press)
+            self.canvas.connect("touch-event", self.on_canvas_touch_event)
         vbox.pack_start(self.canvas, True, True, 0)
 
         self.status_label = Gtk.Label(label="Initializing camera preview...")
         self.status_label.set_ellipsize(3)  # PANGO_ELLIPSIZE_END
         vbox.pack_start(self.status_label, False, False, 0)
 
+        self.button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        vbox.pack_start(self.button_box, False, False, 0)
+
+        self.discard_button = Gtk.Button(label="✕ Discard & Retake")
+        self.discard_button.set_size_request(-1, BUTTON_H)
+        self.discard_button.get_style_context().add_class("destructive-action")
+        self.discard_button.set_no_show_all(True)
+        self.discard_button.connect("clicked", self.on_discard_clicked)
+        self.button_box.pack_start(self.discard_button, True, True, 0)
+
         self.button = Gtk.Button(label=self._take_button_label())
         self.button.set_size_request(-1, BUTTON_H)
-        self.button.connect("clicked", self.on_button_clicked)
-        vbox.pack_start(self.button, False, False, 0)
+        self.button.get_style_context().add_class("suggested-action")
+        self.button.connect("clicked", self.on_primary_clicked)
+        self.button_box.pack_start(self.button, True, True, 0)
 
+        self._load_latest_saved_pixbuf()
+
+        if PREVIEW_ENABLED and GST_AVAILABLE and os.path.exists(self.cam_cfg["device"]):
+            GLib.idle_add(self.start_stream)
+        else:
+            self.state = STATE_LIVE
+            self.status_label.set_text(f"Ready — photos saved to {BOOTH_DIR}")
+
+        if IDLE_TIMEOUT_SECONDS > 0 and PREVIEW_ENABLED and GST_AVAILABLE:
+            self.idle_timer_id = GLib.timeout_add(1000, self._on_idle_check)
+
+    def _load_latest_saved_pixbuf(self):
         latest = sorted(glob.glob(os.path.join(BOOTH_DIR, "*.jpg")))
         if latest:
             try:
@@ -189,17 +228,25 @@ class CameraBoothApp(Gtk.Window):
                 )
             except Exception:
                 self.review_pixbuf = None
-
-        if PREVIEW_ENABLED and GST_AVAILABLE and os.path.exists(self.cam_cfg["device"]):
-            GLib.idle_add(self.start_stream)
         else:
-            self.state = STATE_REVIEW if self.review_pixbuf else STATE_LIVE
-            self.status_label.set_text(f"Ready — photos saved to {BOOTH_DIR}")
+            self.review_pixbuf = None
+
+    def _touch_activity(self):
+        self.last_activity_ts = time.monotonic()
 
     def _take_button_label(self):
         if COUNTDOWN_SECONDS > 0:
             return f"Take Picture ({COUNTDOWN_SECONDS}s Timer)"
         return "Take Picture"
+
+    def _live_status_text(self):
+        tap_hint = "tap video or button" if TAP_ANYWHERE else "tap button"
+        if self.stream_active:
+            return (
+                f"Live preview ({self.cam_cfg['width']}x{self.cam_cfg['height']}, "
+                f"{PREVIEW_FPS} fps) — {tap_hint} to take photo"
+            )
+        return f"Ready — {tap_hint} to take photo ({BOOTH_DIR})"
 
     def _build_pipeline_str(self):
         dev = self.cam_cfg["device"]
@@ -222,7 +269,6 @@ class CameraBoothApp(Gtk.Window):
             crop_str = ""
             fps = PREVIEW_FPS
 
-        # Compute pre-rotation scale dimensions (multiples of 4 for exact RGB rowstride)
         if rot in (90, 270):
             fit = min(PREVIEW_W / float(raw_h), PREVIEW_H / float(raw_w))
         else:
@@ -266,11 +312,12 @@ class CameraBoothApp(Gtk.Window):
                 raise RuntimeError("Failed to set GStreamer pipeline to PLAYING")
 
             self.stream_active = True
-            if self.state != STATE_REVIEW:
+            self._touch_activity()
+            if self.state not in (STATE_REVIEW, STATE_COUNTDOWN, STATE_CAPTURING):
                 self.state = STATE_LIVE
-                self.status_label.set_text(
-                    f"Live preview ({self.cam_cfg['width']}x{self.cam_cfg['height']}, {PREVIEW_FPS} fps) — tap button to take photo"
-                )
+                self.status_label.set_text(self._live_status_text())
+                self.button.set_label(self._take_button_label())
+                self.canvas.queue_draw()
         except Exception as exc:
             self.stop_stream()
             self.status_label.set_text(f"Live stream unavailable ({exc}); CLI capture ready")
@@ -290,11 +337,49 @@ class CameraBoothApp(Gtk.Window):
             self.prev_sink = None
             self.snap_sink = None
 
+    def _enter_sleep_mode(self):
+        if self.state != STATE_LIVE:
+            return
+        self.stop_stream()
+        self.live_pixbuf = None
+        self.state = STATE_SLEEP
+        self.discard_button.hide()
+        self.button.set_sensitive(True)
+        self.button.set_label("Wake Camera")
+        self.status_label.set_text("Camera sleeping to save power — tap anywhere to wake")
+        self.canvas.queue_draw()
+
+    def _wake_from_sleep(self):
+        self._touch_activity()
+        self.live_pixbuf = None
+        self.state = STATE_LIVE
+        self.discard_button.hide()
+        self.button.set_sensitive(True)
+        self.button.set_label(self._take_button_label())
+        self.status_label.set_text("Waking up camera...")
+        self.canvas.queue_draw()
+        self.start_stream()
+
+    def _on_idle_check(self):
+        if IDLE_TIMEOUT_SECONDS <= 0:
+            return True
+        if self.state == STATE_LIVE and self.stream_active:
+            idle_for = time.monotonic() - self.last_activity_ts
+            remaining = IDLE_TIMEOUT_SECONDS - idle_for
+            if remaining <= 0.0:
+                self._enter_sleep_mode()
+            elif remaining <= 5.0:
+                self.status_label.set_text(
+                    f"Idle — camera sleeping in {int(math.ceil(remaining))}s (tap screen to stay awake)"
+                )
+        return True
+
     def on_gst_error(self, _bus, msg):
         err, _dbg = msg.parse_error()
         self.stop_stream()
-        self.status_label.set_text(f"Stream stopped ({err.message}) — CLI capture ready")
-        self.canvas.queue_draw()
+        if self.state != STATE_SLEEP:
+            self.status_label.set_text(f"Stream stopped ({err.message}) — CLI capture ready")
+            self.canvas.queue_draw()
 
     def on_new_preview_sample(self, sink):
         sample = sink.emit("pull-sample")
@@ -325,34 +410,109 @@ class CameraBoothApp(Gtk.Window):
 
     def _update_live_pixbuf(self, raw_bytes, pw, ph, rowstride):
         self._ui_frame_pending = False
+        if self.state == STATE_SLEEP:
+            return False
         try:
+            was_empty = self.live_pixbuf is None
             gbytes = GLib.Bytes.new(raw_bytes)
             self.live_pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(
                 gbytes, GdkPixbuf.Colorspace.RGB, False, 8, pw, ph, rowstride
             )
+            if was_empty and self.state == STATE_LIVE:
+                self.status_label.set_text(self._live_status_text())
             if self.state in (STATE_LIVE, STATE_COUNTDOWN) or self.flash_alpha > 0.0:
                 self.canvas.queue_draw()
         except Exception:
             pass
         return False
 
-    def on_button_clicked(self, _btn):
-        if self.state == STATE_REVIEW:
-            self._finish_review_to_live()
-            return
-        if self.state != STATE_LIVE:
-            return
+    def on_canvas_button_press(self, _widget, _event):
+        self._handle_canvas_tap()
+        return True
 
+    def on_canvas_touch_event(self, _widget, event):
+        if event.type == Gdk.EventType.TOUCH_BEGIN:
+            self._handle_canvas_tap()
+            return True
+        return False
+
+    def _handle_canvas_tap(self):
+        now = time.monotonic()
+        # Debounce TOUCH_BEGIN + synthesized Wayland BUTTON_PRESS pair
+        if now - self._last_tap_ts < 0.30:
+            return
+        self._last_tap_ts = now
+        self._touch_activity()
+
+        if self.state == STATE_SLEEP:
+            self._wake_from_sleep()
+        elif self.state == STATE_LIVE:
+            # Wait until live stream has delivered its first frame if streaming is active
+            if self.stream_active and self.live_pixbuf is None:
+                return
+            self._start_countdown_or_shutter()
+        elif self.state == STATE_COUNTDOWN:
+            self._cancel_countdown()
+        elif self.state == STATE_REVIEW:
+            self._finish_review_to_live()
+
+    def on_primary_clicked(self, _btn):
+        self._touch_activity()
+        if self.state == STATE_SLEEP:
+            self._wake_from_sleep()
+        elif self.state == STATE_REVIEW:
+            self._finish_review_to_live()
+        elif self.state == STATE_COUNTDOWN:
+            self._cancel_countdown()
+        elif self.state == STATE_LIVE:
+            self._start_countdown_or_shutter()
+
+    def on_discard_clicked(self, _btn):
+        self._touch_activity()
+        if self.state != STATE_REVIEW:
+            return
+        if self.review_timer_id is not None:
+            GLib.source_remove(self.review_timer_id)
+            self.review_timer_id = None
+
+        discarded = self.last_captured_path
+        self.last_captured_path = None
+        if discarded and os.path.isfile(discarded):
+            try:
+                os.unlink(discarded)
+            except OSError:
+                pass
+
+        self._load_latest_saved_pixbuf()
+        self.discard_button.hide()
+        self.state = STATE_LIVE
+        self.status_label.set_text("Photo discarded — retaking!")
+        self._start_countdown_or_shutter()
+
+    def _start_countdown_or_shutter(self):
         if COUNTDOWN_SECONDS <= 0:
             self._trigger_shutter()
             return
-
         self.state = STATE_COUNTDOWN
+        self.discard_button.hide()
         self.countdown_total = float(COUNTDOWN_SECONDS)
         self.countdown_end = time.monotonic() + self.countdown_total
-        self.button.set_sensitive(False)
+        self.button.set_sensitive(True)
         self._update_countdown_ui()
+        if self.countdown_timer_id is not None:
+            GLib.source_remove(self.countdown_timer_id)
         self.countdown_timer_id = GLib.timeout_add(50, self._on_countdown_tick)
+
+    def _cancel_countdown(self):
+        if self.countdown_timer_id is not None:
+            GLib.source_remove(self.countdown_timer_id)
+            self.countdown_timer_id = None
+        self.state = STATE_LIVE
+        self.discard_button.hide()
+        self.button.set_sensitive(True)
+        self.button.set_label(self._take_button_label())
+        self.status_label.set_text("Countdown cancelled — tap when ready")
+        self.canvas.queue_draw()
 
     def _on_countdown_tick(self):
         remaining = self.countdown_end - time.monotonic()
@@ -368,17 +528,19 @@ class CameraBoothApp(Gtk.Window):
             remaining = max(0.0, self.countdown_end - time.monotonic())
         secs_ceil = max(1, int(math.ceil(remaining)))
         prompt = "Smile!" if secs_ceil == 1 else "Get ready..."
-        self.button.set_label(f"{prompt} {secs_ceil}")
-        self.status_label.set_text(f"{prompt} Taking picture in {secs_ceil}...")
+        self.button.set_label(f"✕ Cancel ({secs_ceil})")
+        self.status_label.set_text(
+            f"{prompt} Taking picture in {secs_ceil}... (tap to cancel)"
+        )
         self.canvas.queue_draw()
 
     def _trigger_shutter(self):
         self.state = STATE_CAPTURING
+        self.discard_button.hide()
         self.button.set_sensitive(False)
-        self.button.set_label("Capturing! 📸")
+        self.button.set_label("Capturing picture...")
         self.status_label.set_text("Capturing photo right now...")
 
-        # Grab exact t=0 sample from live stream before encoding in background
         captured_sample = None
         if self.stream_active and self.snap_sink is not None:
             try:
@@ -386,7 +548,6 @@ class CameraBoothApp(Gtk.Window):
             except Exception:
                 captured_sample = None
 
-        # Trigger immediate visual shutter flash so subject sees exact capture instant
         self.flash_alpha = 0.9
         self.canvas.queue_draw()
         if self.flash_timer_id is not None:
@@ -464,7 +625,6 @@ class CameraBoothApp(Gtk.Window):
         else:
             err_fallback = ""
 
-        # Fallback: stop stream if holding /dev/video1, run CLI capture, then restart stream
         GLib.idle_add(self.stop_stream)
         time.sleep(0.15)
         cmd = [CAMERA_CLI, "capture", out_path]
@@ -488,7 +648,9 @@ class CameraBoothApp(Gtk.Window):
             GLib.timeout_add(300, self.start_stream)
 
     def _on_capture_done(self, ok, out_path, err_msg):
+        self._touch_activity()
         if ok:
+            self.last_captured_path = out_path
             try:
                 self.review_pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
                     out_path, PREVIEW_W, PREVIEW_H, True
@@ -500,7 +662,9 @@ class CameraBoothApp(Gtk.Window):
 
             self.state = STATE_REVIEW
             self.review_end = time.monotonic() + float(REVIEW_SECONDS)
-            self.status_label.set_text(f"Saved: {out_path}")
+            self.status_label.set_text(f"Saved: {os.path.basename(out_path)}")
+            if ALLOW_DISCARD:
+                self.discard_button.show()
             self.button.set_sensitive(True)
             self._update_review_button()
             self.canvas.queue_draw()
@@ -508,7 +672,9 @@ class CameraBoothApp(Gtk.Window):
                 GLib.source_remove(self.review_timer_id)
             self.review_timer_id = GLib.timeout_add(250, self._on_review_tick)
         else:
+            self.last_captured_path = None
             self.state = STATE_LIVE
+            self.discard_button.hide()
             self.button.set_sensitive(True)
             self.button.set_label(self._take_button_label())
             self.status_label.set_text(
@@ -534,23 +700,20 @@ class CameraBoothApp(Gtk.Window):
             remaining = max(0.0, self.review_end - time.monotonic())
         secs = max(1, int(math.ceil(remaining)))
         if self.stream_active:
-            self.button.set_label(f"Back to Live Camera ({secs}s)")
+            self.button.set_label(f"✓ Keep & Live ({secs}s)")
         else:
-            self.button.set_label(self._take_button_label())
+            self.button.set_label(f"✓ Keep Photo ({secs}s)")
 
     def _finish_review_to_live(self):
         if self.review_timer_id is not None:
             GLib.source_remove(self.review_timer_id)
             self.review_timer_id = None
+        self._touch_activity()
+        self.discard_button.hide()
         self.state = STATE_LIVE
         self.button.set_sensitive(True)
         self.button.set_label(self._take_button_label())
-        if self.stream_active:
-            self.status_label.set_text(
-                f"Live preview ({self.cam_cfg['width']}x{self.cam_cfg['height']}, {PREVIEW_FPS} fps) — tap button to take photo"
-            )
-        else:
-            self.status_label.set_text(f"Ready — photos saved to {BOOTH_DIR}")
+        self.status_label.set_text(self._live_status_text())
         self.canvas.queue_draw()
 
     def on_draw_canvas(self, widget, cr):
@@ -562,13 +725,51 @@ class CameraBoothApp(Gtk.Window):
         cr.rectangle(0, 0, cw, ch)
         cr.fill()
 
-        # Choose active pixbuf
+        # Sleep mode screen (camera powered off to save power & free /dev/video1)
+        if self.state == STATE_SLEEP:
+            if self.review_pixbuf is not None:
+                pw, ph = self.review_pixbuf.get_width(), self.review_pixbuf.get_height()
+                scale = min(cw / float(pw), ch / float(ph))
+                dx, dy = (cw - pw * scale) / 2.0, (ch - ph * scale) / 2.0
+                cr.save()
+                cr.translate(dx, dy)
+                cr.scale(scale, scale)
+                Gdk.cairo_set_source_pixbuf(cr, self.review_pixbuf, 0, 0)
+                cr.paint_with_alpha(0.22)
+                cr.restore()
+
+            self._draw_badge(cr, 12, 12, "SLEEP MODE", (0.95, 0.68, 0.18))
+
+            card_w, card_h = min(cw - 40, 420), 110
+            cx, cy = (cw - card_w) / 2.0, (ch - card_h) / 2.0
+            cr.set_source_rgba(0.06, 0.07, 0.09, 0.82)
+            cr.rectangle(cx, cy, card_w, card_h)
+            cr.fill()
+
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+            cr.set_font_size(22)
+            title = "Tap Anywhere to Wake Camera"
+            ext1 = cr.text_extents(title)
+            cr.set_source_rgba(1.0, 1.0, 1.0, 0.96)
+            cr.move_to((cw - ext1.width) / 2.0, cy + 48)
+            cr.show_text(title)
+
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+            cr.set_font_size(14)
+            sub = "Camera stream paused after inactivity"
+            ext2 = cr.text_extents(sub)
+            cr.set_source_rgba(0.75, 0.78, 0.82, 0.92)
+            cr.move_to((cw - ext2.width) / 2.0, cy + 80)
+            cr.show_text(sub)
+            return False
+
+        # Choose active pixbuf for live / countdown / review
         pixbuf = None
         if self.state == STATE_REVIEW and self.review_pixbuf is not None:
             pixbuf = self.review_pixbuf
         elif self.live_pixbuf is not None:
             pixbuf = self.live_pixbuf
-        elif self.review_pixbuf is not None:
+        elif self.review_pixbuf is not None and not PREVIEW_ENABLED:
             pixbuf = self.review_pixbuf
 
         if pixbuf is not None:
@@ -586,16 +787,17 @@ class CameraBoothApp(Gtk.Window):
             cr.set_source_rgb(0.65, 0.68, 0.72)
             cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
             cr.set_font_size(18)
-            msg = "Starting live camera stream..." if PREVIEW_ENABLED else "Ready to take picture"
+            msg = "Starting live camera stream..." if PREVIEW_ENABLED else "Tap to take picture"
             ext = cr.text_extents(msg)
             cr.move_to((cw - ext.width) / 2.0, (ch + ext.height) / 2.0)
             cr.show_text(msg)
 
-        # Top-left status badge (LIVE or SAVED)
+        # Top-left status badge (LIVE or PHOTO SAVED)
         if self.state == STATE_REVIEW and self.review_pixbuf is not None:
             self._draw_badge(cr, 12, 12, "PHOTO SAVED", (0.15, 0.62, 0.95))
         elif self.stream_active and self.live_pixbuf is not None:
-            self._draw_badge(cr, 12, 12, "LIVE", (0.18, 0.82, 0.38))
+            badge_txt = "LIVE  •  TAP TO SNAP" if (TAP_ANYWHERE and self.state == STATE_LIVE) else "LIVE"
+            self._draw_badge(cr, 12, 12, badge_txt, (0.18, 0.82, 0.38))
 
         # Centered visual countdown overlay
         if self.state == STATE_COUNTDOWN:
@@ -605,18 +807,15 @@ class CameraBoothApp(Gtk.Window):
             cx, cy = cw / 2.0, ch / 2.0
             radius = min(cw, ch) * 0.24
 
-            # Translucent dark circle
             cr.set_source_rgba(0.06, 0.07, 0.09, 0.72)
             cr.arc(cx, cy, radius, 0, 2.0 * math.pi)
             cr.fill()
 
-            # Subtle background track ring
             cr.set_line_width(7.0)
             cr.set_source_rgba(1.0, 1.0, 1.0, 0.22)
             cr.arc(cx, cy, radius - 5.0, 0, 2.0 * math.pi)
             cr.stroke()
 
-            # Sweeping countdown progress arc (green -> warm gold on '1')
             if secs_num == 1:
                 cr.set_source_rgba(1.0, 0.82, 0.18, 0.96)
             else:
@@ -626,7 +825,6 @@ class CameraBoothApp(Gtk.Window):
             cr.arc(cx, cy, radius - 5.0, start_ang, end_ang)
             cr.stroke()
 
-            # Large crisp countdown digit
             digit_str = str(secs_num)
             cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
             cr.set_font_size(radius * 1.15)
@@ -667,7 +865,12 @@ class CameraBoothApp(Gtk.Window):
         cr.show_text(text)
 
     def on_destroy(self, *_args):
-        for tid in (self.countdown_timer_id, self.flash_timer_id, self.review_timer_id):
+        for tid in (
+            self.countdown_timer_id,
+            self.flash_timer_id,
+            self.review_timer_id,
+            self.idle_timer_id,
+        ):
             if tid is not None:
                 GLib.source_remove(tid)
         self.stop_stream()

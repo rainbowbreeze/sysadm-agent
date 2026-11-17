@@ -8,7 +8,10 @@
 #   - camerabooth_countdown_seconds: Visual countdown seconds before snapping photo (default: 3; set 0 for immediate capture)
 #   - camerabooth_preview_enabled: Stream live low-FPS camera preview in the booth window (default: true)
 #   - camerabooth_preview_fps: Live preview frame rate in FPS (default: 5)
-#   - camerabooth_review_seconds: Seconds to show captured photo before resuming live stream (default: 4)
+#   - camerabooth_review_seconds: Seconds to show captured photo (with Discard & Retake option) before resuming live stream (default: 6)
+#   - camerabooth_idle_timeout: Seconds of inactivity before putting camera stream to sleep (default: 60; set 0 to disable)
+#   - camerabooth_tap_anywhere: Allow tapping anywhere on the video canvas to wake, trigger/cancel countdown, or keep photo (default: true)
+#   - camerabooth_allow_discard: Show "Discard & Retake" button during post-shot review (default: true)
 
 camerabooth_script_path: "/usr/local/bin/camera-booth"
 camerabooth_user_home: "{{ '/root' if ansible_user == 'root' else '/home/' ~ ansible_user }}"
@@ -19,7 +22,10 @@ camerabooth_rotation: ""
 camerabooth_countdown_seconds: 3
 camerabooth_preview_enabled: true
 camerabooth_preview_fps: 5
-camerabooth_review_seconds: 4
+camerabooth_review_seconds: 6
+camerabooth_idle_timeout: 60
+camerabooth_tap_anywhere: true
+camerabooth_allow_discard: true
 camerabooth_window_title: "Camera Booth"
 camerabooth_window_width: 740
 camerabooth_window_height: 410
