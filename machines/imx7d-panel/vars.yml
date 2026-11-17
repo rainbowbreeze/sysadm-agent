@@ -2,7 +2,8 @@
 machine_hostname: "imx7d-panel"
 baseline_timezone: "Europe/Rome"
 baseline_ssh_pub_key_file: "{{ playbook_dir }}/../../ssh_keys/sysadm-agent.pub"
-baseline_disable_gui: true
+baseline_sshd_permit_root_login: "without-password"
+baseline_disable_gui: false
 baseline_enable_node_exporter: true
 
 baseline_apt_gpg_keys:

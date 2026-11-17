@@ -16,8 +16,8 @@
 #      tags: [rainbowhat-imx7d]
     - role: camera-ov5645
       tags: [camera-ov5645]
-    - role: stream-ustreamer
-      tags: [stream-ustreamer]
+#    - role: stream-ustreamer
+#      tags: [stream-ustreamer]
     - role: camerabooth
       tags: [camerabooth]
     

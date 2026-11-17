@@ -1,0 +1,6 @@
+---
+baseline_ssh_service: sshd.socket
+baseline_ssh_socket_mode: true
+baseline_observability_packages: []
+baseline_node_exporter_package: ""
+baseline_node_exporter_service: ""

@@ -1,0 +1,5 @@
+# Managed by Ansible (baseline role)
+# Override systemd socket activation port to match hardened sshd port.
+[Socket]
+ListenStream=
+ListenStream={{ baseline_sshd_port }}

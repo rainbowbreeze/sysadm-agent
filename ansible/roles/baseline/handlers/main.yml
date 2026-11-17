@@ -1,8 +1,21 @@
 ---
-- name: Restart sshd
+- name: Restart sshd unit (systemd)
+  ansible.builtin.systemd:
+    name: "{{ baseline_ssh_service }}"
+    state: restarted
+    daemon_reload: true
+  listen: Restart sshd
+  when: ansible_facts["service_mgr"] == "systemd"
+  notify:
+    - Update active ansible_port to baseline_sshd_port
+    - Reset SSH connection after sshd restart
+
+- name: Restart sshd service (non-systemd)
   ansible.builtin.service:
     name: "{{ baseline_ssh_service }}"
     state: restarted
+  listen: Restart sshd
+  when: ansible_facts["service_mgr"] != "systemd"
   notify:
     - Update active ansible_port to baseline_sshd_port
     - Reset SSH connection after sshd restart
