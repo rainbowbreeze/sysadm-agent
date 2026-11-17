@@ -1,7 +1,7 @@
 ---
 # Module: wifi-home-conf
-# Description: Creates and activates up to two persistent NetworkManager WiFi connection profiles (<ssid>-profile) from secret credentials.
-# Supported OS Families: Debian, Alpine
+# Description: Configures persistent WiFi profiles and dual-homed source routing via NetworkManager (Debian/Alpine) or ConnMan (TechNexion Yocto).
+# Supported OS Families: Debian, Alpine, TechNexion i.MX Release Distro
 # Required Secrets (in machines/<MACHINE_NAME>/secrets.yml):
 #   - wifi_profile1_ssid (optional, at least one of profile1 or profile2 must be set)
 #   - wifi_profile1_password (required when wifi_profile1_ssid is set)
@@ -12,6 +12,7 @@ wifi_home_conf_interface: "wlan0"
 wifi_home_conf_activate: true
 wifi_home_conf_profile1_priority: 10
 wifi_home_conf_profile2_priority: 5
+wifi_home_conf_regdom: "IT"
 wifi_home_conf_source_routing: true
 wifi_home_conf_route_table: 200
 wifi_home_conf_rule_priority: 100

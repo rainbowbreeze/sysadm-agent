@@ -1,0 +1,20 @@
+# Managed by Ansible (wifi-home-conf role)
+# Note: Do not set AutoConnect = true inside [service_*] sections; connmand
+# automatically marks provisioned .config services as Favorite and AutoConnect.
+[global]
+Name = WiFi Provisioning
+Description = Persistent WiFi connection profiles managed by Ansible
+
+{% if wifi_profile1_ssid | length > 0 %}
+[service_profile1]
+Type = wifi
+Name = {{ wifi_profile1_ssid }}
+Passphrase = {{ wifi_profile1_password }}
+
+{% endif %}
+{% if wifi_profile2_ssid | length > 0 %}
+[service_profile2]
+Type = wifi
+Name = {{ wifi_profile2_ssid }}
+Passphrase = {{ wifi_profile2_password }}
+{% endif %}

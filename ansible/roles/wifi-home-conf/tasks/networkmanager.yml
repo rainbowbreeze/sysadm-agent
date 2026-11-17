@@ -1,0 +1,118 @@
+---
+- name: Load OS-specific NetworkManager variables for wifi-home-conf
+  ansible.builtin.include_vars: "{{ ansible_facts['os_family'] }}.yml"
+
+- name: Ensure NetworkManager packages are installed
+  ansible.builtin.package:
+    name: "{{ wifi_home_conf_packages }}"
+    state: present
+
+- name: Ensure NetworkManager service is enabled and running
+  ansible.builtin.service:
+    name: "{{ wifi_home_conf_service_name }}"
+    state: started
+    enabled: true
+
+- name: Ensure NetworkManager system-connections directory exists
+  ansible.builtin.file:
+    path: /etc/NetworkManager/system-connections
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Deploy NetworkManager WiFi connection profiles
+  ansible.builtin.template:
+    src: wifi-profile.nmconnection.j2
+    dest: "/etc/NetworkManager/system-connections/{{ item.ssid }}-profile.nmconnection"
+    owner: root
+    group: root
+    mode: "0600"
+  loop:
+    - name: profile1
+      ssid: "{{ wifi_profile1_ssid }}"
+      password: "{{ wifi_profile1_password }}"
+      priority: "{{ wifi_home_conf_profile1_priority }}"
+    - name: profile2
+      ssid: "{{ wifi_profile2_ssid }}"
+      password: "{{ wifi_profile2_password }}"
+      priority: "{{ wifi_home_conf_profile2_priority }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.ssid | length > 0
+  register: wifi_home_conf_profiles_rendered
+  notify: Reload NetworkManager profiles for wifi-home-conf
+  no_log: true
+
+- name: Flush handlers before activating NetworkManager WiFi profiles
+  ansible.builtin.meta: flush_handlers
+
+- name: Check currently active NetworkManager connection on {{ wifi_home_conf_interface }}
+  ansible.builtin.command:
+    cmd: "nmcli -g GENERAL.CONNECTION device show {{ wifi_home_conf_interface | quote }}"
+  register: wifi_home_conf_active_conn
+  changed_when: false
+  failed_when: false
+  when: wifi_home_conf_activate | bool
+
+- name: Activate primary NetworkManager WiFi profile
+  ansible.builtin.command:
+    cmd: "nmcli connection up {{ (wifi_profile1_ssid ~ '-profile') | quote }}"
+  when:
+    - wifi_home_conf_activate | bool
+    - wifi_profile1_ssid | length > 0
+  register: wifi_home_conf_up_profile1
+  failed_when:
+    - wifi_home_conf_up_profile1.rc != 0
+    - wifi_profile2_ssid | length == 0
+  changed_when: >-
+    (wifi_home_conf_up_profile1.rc == 0) and
+    ((wifi_home_conf_active_conn.stdout | default('') | trim) != (wifi_profile1_ssid ~ '-profile') or
+     (wifi_home_conf_profiles_rendered is changed))
+
+- name: Activate fallback NetworkManager WiFi profile
+  ansible.builtin.command:
+    cmd: "nmcli connection up {{ (wifi_profile2_ssid ~ '-profile') | quote }}"
+  when:
+    - wifi_home_conf_activate | bool
+    - wifi_profile2_ssid | length > 0
+    - (wifi_profile1_ssid | length == 0) or (wifi_home_conf_up_profile1.rc | default(1) != 0)
+  register: wifi_home_conf_up_profile2
+  changed_when: >-
+    (wifi_home_conf_up_profile2.rc == 0) and
+    ((wifi_home_conf_active_conn.stdout | default('') | trim) != (wifi_profile2_ssid ~ '-profile') or
+     (wifi_home_conf_profiles_rendered is changed))
+
+- name: Configure NetworkManager WiFi source-based policy routing
+  when: wifi_home_conf_source_routing | bool
+  block:
+    - name: Ensure NetworkManager dispatcher.d directory exists
+      ansible.builtin.file:
+        path: /etc/NetworkManager/dispatcher.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Deploy NetworkManager dispatcher script for WiFi source policy routing
+      ansible.builtin.template:
+        src: 99-wifi-source-routing.j2
+        dest: /etc/NetworkManager/dispatcher.d/99-wifi-source-routing
+        owner: root
+        group: root
+        mode: "0755"
+      register: wifi_home_conf_dispatcher_script
+
+    - name: Check if WiFi source policy routing rule is already active
+      ansible.builtin.command:
+        cmd: ip -4 rule show
+      register: wifi_home_conf_ip_rule_check
+      changed_when: false
+
+    - name: Apply WiFi source policy routing rule on {{ wifi_home_conf_interface }}
+      ansible.builtin.command:
+        cmd: "/etc/NetworkManager/dispatcher.d/99-wifi-source-routing {{ wifi_home_conf_interface | quote }} up"
+      when: >-
+        (wifi_home_conf_dispatcher_script is changed) or
+        (("lookup " ~ (wifi_home_conf_route_table | string)) not in wifi_home_conf_ip_rule_check.stdout)
+      changed_when: true

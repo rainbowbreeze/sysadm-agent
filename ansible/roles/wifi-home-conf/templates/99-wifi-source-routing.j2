@@ -17,12 +17,26 @@ fi
 
 case "$ACTION" in
   up|dhcp4-change|reapply)
-    WIFI_CIDR="$(ip -4 -o addr show dev "$WIFI_IFACE" scope global | awk '{print $4; exit}')"
+    WIFI_CIDR="$(ip -4 addr show dev "$WIFI_IFACE" | awk '/inet / && /scope global/ {print $2; exit}')"
     WIFI_IP="${WIFI_CIDR%/*}"
-    WIFI_SUBNET="$(ip -4 route show dev "$WIFI_IFACE" proto kernel scope link | awk '{print $1; exit}')"
+    WIFI_SUBNET="$(ip -4 route show dev "$WIFI_IFACE" | awk '/^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+/ {print $1; exit}')"
+
+    # 1. Prefer explicit default route on WIFI_IFACE in main table (NetworkManager)
     WIFI_GW="$(ip -4 route show default dev "$WIFI_IFACE" | awk '/ via / {for (i=1;i<=NF;i++) if ($i=="via") {print $(i+1); exit}}')"
+    # 2. Fallback to ConnMan DHCP router /32 scope-link host route on WIFI_IFACE
+    if [[ -z "$WIFI_GW" ]]; then
+      WIFI_GW="$(ip -4 route show dev "$WIFI_IFACE" scope link | awk '$1 ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ {print $1; exit}')"
+    fi
+    # 3. Fallback to any other routing table carrying a default route for WIFI_IFACE
+    if [[ -z "$WIFI_GW" ]]; then
+      WIFI_GW="$(ip -4 route show table all default dev "$WIFI_IFACE" 2>/dev/null | awk -v tbl="$ROUTE_TABLE" '$0 !~ ("table " tbl " ") && / via / {for (i=1;i<=NF;i++) if ($i=="via") {print $(i+1); exit}}')"
+    fi
 
     if [[ -n "$WIFI_IP" && -n "$WIFI_GW" ]]; then
+      # Ensure loose reverse-path filtering (2) so cross-subnet packets arriving on WIFI_IFACE
+      # are not dropped when eth0 holds the primary default route in the main table.
+      sysctl -qw "net.ipv4.conf.all.rp_filter=2" "net.ipv4.conf.${WIFI_IFACE}.rp_filter=2" 2>/dev/null || true
+
       ip route flush table "$ROUTE_TABLE" 2>/dev/null || true
       if [[ -n "$WIFI_SUBNET" ]]; then
         ip route replace "$WIFI_SUBNET" dev "$WIFI_IFACE" scope link src "$WIFI_IP" table "$ROUTE_TABLE"
