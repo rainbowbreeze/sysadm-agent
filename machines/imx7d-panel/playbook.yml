@@ -12,8 +12,8 @@
       tags: [wifi-bcm4339-k6]
     - role: wifi-home-conf
       tags: [wifi-home-conf]
-    - role: rainbowhat-imx7d
-      tags: [rainbowhat-imx7d]
+#    - role: rainbowhat-imx7d
+#      tags: [rainbowhat-imx7d]
     - role: camera-ov5645
       tags: [camera-ov5645]
     - role: stream-ustreamer
